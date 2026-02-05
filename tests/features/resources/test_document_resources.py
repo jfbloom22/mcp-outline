@@ -75,8 +75,8 @@ class TestDocumentResourceFormatters:
         assert all(line.startswith("- ") for line in lines)
 
         # Each line should have title and ID in parentheses
-        assert "Document 1 Linking Here (doc456)" in result
-        assert "Document 2 Linking Here (doc789)" in result
+        assert "Document 1 Linking Here (ID: doc456)" in result
+        assert "Document 2 Linking Here (ID: doc789)" in result
 
         # Verify count
         assert len(lines) == 2
@@ -186,8 +186,8 @@ class TestDocumentResources:
             result = await resource_func("doc123")
 
             # Verify simple bullet list format
-            assert "Document 1 Linking Here (doc456)" in result
-            assert "Document 2 Linking Here (doc789)" in result
+            assert "Document 1 Linking Here (ID: doc456)" in result
+            assert "Document 2 Linking Here (ID: doc789)" in result
             # Should not have markdown headers
             assert "# Backlinks" not in result
             mock_client.post.assert_called_once_with(

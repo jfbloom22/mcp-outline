@@ -233,10 +233,13 @@ def register_tools(mcp) -> None:
             for i, document in enumerate(documents, 1):
                 title = document.get("title", "Untitled Document")
                 doc_id = document.get("id", "")
+                doc_url_id = document.get("urlId", "")
                 updated_at = document.get("updatedAt", "")
 
                 output += f"## {i}. {title}\n"
                 output += f"ID: {doc_id}\n"
+                if doc_url_id:
+                    output += f"Short ID: {doc_url_id}\n"
                 if updated_at:
                     output += f"Last Updated: {updated_at}\n"
                 output += "\n"

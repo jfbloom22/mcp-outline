@@ -31,11 +31,11 @@ class MockMCP:
 # Sample test data
 SAMPLE_SEARCH_RESULTS = [
     {
-        "document": {"id": "doc1", "title": "Test Document 1"},
+        "document": {"id": "doc1", "urlId": "test-doc-1", "title": "Test Document 1"},
         "context": "This is a test document.",
     },
     {
-        "document": {"id": "doc2", "title": "Test Document 2"},
+        "document": {"id": "doc2", "urlId": "test-doc-2", "title": "Test Document 2"},
         "context": "Another test document.",
     },
 ]
@@ -43,11 +43,13 @@ SAMPLE_SEARCH_RESULTS = [
 SAMPLE_DOCUMENTS = [
     {
         "id": "doc1",
+        "urlId": "test-doc-1",
         "title": "Test Document 1",
         "updatedAt": "2023-01-01T12:00:00Z",
     },
     {
         "id": "doc2",
+        "urlId": "test-doc-2",
         "title": "Test Document 2",
         "updatedAt": "2023-01-02T12:00:00Z",
     },
@@ -56,18 +58,20 @@ SAMPLE_DOCUMENTS = [
 SAMPLE_COLLECTIONS = [
     {
         "id": "coll1",
+        "urlId": "test-coll-1",
         "name": "Test Collection 1",
         "description": "Collection description",
     },
-    {"id": "coll2", "name": "Test Collection 2", "description": ""},
+    {"id": "coll2", "urlId": "test-coll-2", "name": "Test Collection 2", "description": ""},
 ]
 
 SAMPLE_COLLECTION_DOCUMENTS = [
     {
         "id": "doc1",
+        "urlId": "root-doc",
         "title": "Root Document",
         "children": [
-            {"id": "doc2", "title": "Child Document", "children": []}
+            {"id": "doc2", "urlId": "child-doc", "title": "Child Document", "children": []}
         ],
     }
 ]
@@ -84,8 +88,10 @@ class TestDocumentSearchFormatters:
         assert "# Search Results" in result
         assert "Test Document 1" in result
         assert "doc1" in result
+        assert "test-doc-1" in result
         assert "This is a test document." in result
         assert "Test Document 2" in result
+        assert "test-doc-2" in result
 
     def test_format_search_results_empty(self):
         """Test formatting empty search results."""
@@ -101,8 +107,10 @@ class TestDocumentSearchFormatters:
         assert "# Document List" in result
         assert "Test Document 1" in result
         assert "doc1" in result
+        assert "test-doc-1" in result
         assert "2023-01-01" in result
         assert "Test Document 2" in result
+        assert "test-doc-2" in result
 
     def test_format_collections_with_data(self):
         """Test formatting collections with valid data."""
@@ -112,8 +120,10 @@ class TestDocumentSearchFormatters:
         assert "# Collections" in result
         assert "Test Collection 1" in result
         assert "coll1" in result
+        assert "test-coll-1" in result
         assert "Collection description" in result
         assert "Test Collection 2" in result
+        assert "test-coll-2" in result
 
     def test_format_collections_empty(self):
         """Test formatting empty collections list."""
@@ -129,8 +139,10 @@ class TestDocumentSearchFormatters:
         assert "# Collection Structure" in result
         assert "Root Document" in result
         assert "doc1" in result
+        assert "root-doc" in result
         assert "Child Document" in result
         assert "doc2" in result
+        assert "child-doc" in result
 
     def test_format_collection_documents_empty(self):
         """Test formatting empty collection document structure."""

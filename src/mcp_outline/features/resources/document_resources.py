@@ -29,7 +29,12 @@ def _format_backlinks(backlinks: list) -> str:
     for doc in backlinks:
         title = doc.get("title", "Untitled")
         doc_id = doc.get("id", "")
-        result.append(f"- {title} ({doc_id})")
+        doc_url_id = doc.get("urlId", "")
+
+        if doc_url_id:
+            result.append(f"- {title} (ID: {doc_id}, Short ID: {doc_url_id})")
+        else:
+            result.append(f"- {title} (ID: {doc_id})")
 
     return "\n".join(result)
 

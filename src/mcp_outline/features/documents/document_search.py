@@ -46,10 +46,13 @@ def _format_search_results(
         document = result.get("document", {})
         title = document.get("title", "Untitled")
         doc_id = document.get("id", "")
+        doc_url_id = document.get("urlId", "")
         context = result.get("context", "")
 
         output += f"## {i}. {title}\n"
         output += f"ID: {doc_id}\n"
+        if doc_url_id:
+            output += f"Short ID: {doc_url_id}\n"
         # Show ranking if present (including 0.0)
         if "ranking" in result:
             ranking = result["ranking"]
@@ -71,10 +74,13 @@ def _format_documents_list(documents: List[Dict[str, Any]], title: str) -> str:
     for i, document in enumerate(documents, 1):
         doc_title = document.get("title", "Untitled")
         doc_id = document.get("id", "")
+        doc_url_id = document.get("urlId", "")
         updated_at = document.get("updatedAt", "")
 
         output += f"## {i}. {doc_title}\n"
         output += f"ID: {doc_id}\n"
+        if doc_url_id:
+            output += f"Short ID: {doc_url_id}\n"
         if updated_at:
             output += f"Last Updated: {updated_at}\n"
         output += "\n"
@@ -92,10 +98,13 @@ def _format_collections(collections: List[Dict[str, Any]]) -> str:
     for i, collection in enumerate(collections, 1):
         name = collection.get("name", "Untitled Collection")
         coll_id = collection.get("id", "")
+        coll_url_id = collection.get("urlId", "")
         description = collection.get("description", "")
 
         output += f"## {i}. {name}\n"
         output += f"ID: {coll_id}\n"
+        if coll_url_id:
+            output += f"Short ID: {coll_url_id}\n"
         if description:
             output += f"Description: {description}\n"
         output += "\n"
@@ -112,11 +121,15 @@ def _format_collection_documents(doc_nodes: List[Dict[str, Any]]) -> str:
         # Extract node details
         title = node.get("title", "Untitled")
         node_id = node.get("id", "")
+        node_url_id = node.get("urlId", "")
         children = node.get("children", [])
 
         # Format this node
         indent = "  " * depth
-        text = f"{indent}- {title} (ID: {node_id})\n"
+        text = f"{indent}- {title} (ID: {node_id}"
+        if node_url_id:
+            text += f", Short ID: {node_url_id}"
+        text += ")\n"
 
         # Recursively format children
         for child in children:
