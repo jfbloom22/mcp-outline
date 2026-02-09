@@ -24,9 +24,21 @@ host = os.getenv("MCP_HOST", "127.0.0.1")
 
 # Get port from environment variable, default to 3000 (standard MCP HTTP port)
 port = int(os.getenv("MCP_PORT", "3000"))
+streamable_http_path = os.getenv("MCP_STREAMABLE_HTTP_PATH", "/mcp")
+stateless_http = os.getenv("MCP_STATELESS_HTTP", "").lower() in (
+    "true",
+    "1",
+    "yes",
+)
 
 # Create a FastMCP server instance with a name and port configuration
-mcp = FastMCP("Document Outline", host=host, port=port)
+mcp = FastMCP(
+    "Document Outline",
+    host=host,
+    port=port,
+    streamable_http_path=streamable_http_path,
+    stateless_http=stateless_http,
+)
 
 # Register all features
 register_all(mcp)

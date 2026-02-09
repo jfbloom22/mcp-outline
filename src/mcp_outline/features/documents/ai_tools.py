@@ -6,6 +6,7 @@ This module provides MCP tools for AI-powered features in Outline.
 
 from typing import Any, Dict, Optional
 
+from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
 
 from mcp_outline.features.documents.common import (
@@ -62,6 +63,7 @@ def register_tools(mcp) -> None:
         question: str,
         collection_id: Optional[str] = None,
         document_id: Optional[str] = None,
+        ctx: Optional[Context] = None,
     ) -> str:
         """
         Queries document content using natural language questions.
@@ -82,7 +84,7 @@ def register_tools(mcp) -> None:
             AI-generated answer based on document content with sources
         """
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
             response = await client.answer_question(
                 question, collection_id, document_id
             )

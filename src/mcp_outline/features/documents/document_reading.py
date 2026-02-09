@@ -4,8 +4,9 @@ Document reading tools for the MCP Outline server.
 This module provides MCP tools for reading document content.
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
+from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
 
 from mcp_outline.features.documents.common import (
@@ -36,7 +37,9 @@ def register_tools(mcp) -> None:
     @mcp.tool(
         annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True)
     )
-    async def read_document(document_id: str) -> str:
+    async def read_document(
+        document_id: str, ctx: Optional[Context] = None
+    ) -> str:
         """
         Retrieves and displays the full content of a document.
 
@@ -53,7 +56,7 @@ def register_tools(mcp) -> None:
             Formatted string containing the document title and content
         """
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
             document = await client.get_document(document_id)
             return _format_document_content(document)
         except OutlineClientError as e:
@@ -64,7 +67,9 @@ def register_tools(mcp) -> None:
     @mcp.tool(
         annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True)
     )
-    async def export_document(document_id: str) -> str:
+    async def export_document(
+        document_id: str, ctx: Optional[Context] = None
+    ) -> str:
         """
         Exports a document as plain markdown text.
 
@@ -81,7 +86,7 @@ def register_tools(mcp) -> None:
             Document content in markdown format without additional formatting
         """
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
             response = await client.post(
                 "documents.export", {"id": document_id}
             )

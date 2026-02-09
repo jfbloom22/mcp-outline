@@ -6,6 +6,7 @@ as GitHub Copilot CLI does.
 """
 
 import os
+import sys
 
 import pytest
 from mcp.client.session import ClientSession
@@ -25,7 +26,7 @@ async def test_list_collections_tool_schema():
     env["MCP_TRANSPORT"] = "stdio"
 
     server_params = StdioServerParameters(
-        command="python", args=["-m", "mcp_outline"], env=env
+        command=sys.executable, args=["-m", "mcp_outline"], env=env
     )
 
     async with stdio_client(server_params) as (read, write):
@@ -74,7 +75,7 @@ async def test_list_collections_with_empty_arguments():
     env["OUTLINE_API_KEY"] = "test-key-for-integration-test"
 
     server_params = StdioServerParameters(
-        command="python", args=["-m", "mcp_outline"], env=env
+        command=sys.executable, args=["-m", "mcp_outline"], env=env
     )
 
     async with stdio_client(server_params) as (read, write):
@@ -136,7 +137,7 @@ async def test_compare_search_and_list_schemas():
     env["MCP_TRANSPORT"] = "stdio"
 
     server_params = StdioServerParameters(
-        command="python", args=["-m", "mcp_outline"], env=env
+        command=sys.executable, args=["-m", "mcp_outline"], env=env
     )
 
     async with stdio_client(server_params) as (read, write):

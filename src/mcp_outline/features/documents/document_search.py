@@ -6,6 +6,7 @@ This module provides MCP tools for searching and listing documents.
 
 from typing import Any, Dict, List, Optional
 
+from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
 
 from mcp_outline.features.documents.common import (
@@ -160,6 +161,7 @@ def register_tools(mcp) -> None:
         collection_id: Optional[str] = None,
         limit: int = 25,
         offset: int = 0,
+        ctx: Optional[Context] = None,
     ) -> str:
         """
         Searches for documents using keywords or phrases across your knowledge
@@ -197,7 +199,7 @@ def register_tools(mcp) -> None:
             contexts, and pagination information
         """
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
             response = await client.search_documents(
                 query, collection_id, limit, offset
             )
@@ -215,7 +217,7 @@ def register_tools(mcp) -> None:
     @mcp.tool(
         annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True)
     )
-    async def list_collections() -> str:
+    async def list_collections(ctx: Optional[Context] = None) -> str:
         """
         Retrieves and displays all available collections in the workspace.
 
@@ -229,7 +231,7 @@ def register_tools(mcp) -> None:
             Formatted string containing collection names, IDs, and descriptions
         """
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
             collections = await client.list_collections()
             return _format_collections(collections)
         except OutlineClientError as e:
@@ -240,7 +242,9 @@ def register_tools(mcp) -> None:
     @mcp.tool(
         annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True)
     )
-    async def get_collection_structure(collection_id: str) -> str:
+    async def get_collection_structure(
+        collection_id: str, ctx: Optional[Context] = None
+    ) -> str:
         """
         Retrieves the hierarchical document structure of a collection.
 
@@ -257,7 +261,7 @@ def register_tools(mcp) -> None:
             Formatted string showing the hierarchical structure of documents
         """
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
             docs = await client.get_collection_documents(collection_id)
             return _format_collection_documents(docs)
         except OutlineClientError as e:
@@ -269,7 +273,9 @@ def register_tools(mcp) -> None:
         annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True)
     )
     async def get_document_id_from_title(
-        query: str, collection_id: Optional[str] = None
+        query: str,
+        collection_id: Optional[str] = None,
+        ctx: Optional[Context] = None,
     ) -> str:
         """
         Locates a document ID by searching for its title.
@@ -295,7 +301,7 @@ def register_tools(mcp) -> None:
             Document ID if found, or best match information
         """
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
             response = await client.search_documents(query, collection_id)
 
             # Extract results from response

@@ -6,6 +6,7 @@ This module provides MCP tools for creating and updating document content.
 
 from typing import Any, Dict, Optional
 
+from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
 
 from mcp_outline.features.documents.common import (
@@ -35,6 +36,7 @@ def register_tools(mcp) -> None:
         text: str = "",
         parent_document_id: Optional[str] = None,
         publish: bool = True,
+        ctx: Optional[Context] = None,
     ) -> str:
         """
         Creates a new document in a specified collection.
@@ -60,7 +62,7 @@ def register_tools(mcp) -> None:
             Result message with the new document ID
         """
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
 
             data = {
                 "title": title,
@@ -99,6 +101,7 @@ def register_tools(mcp) -> None:
         title: Optional[str] = None,
         text: Optional[str] = None,
         append: bool = False,
+        ctx: Optional[Context] = None,
     ) -> str:
         """
         Modifies an existing document's title or content.
@@ -129,7 +132,7 @@ def register_tools(mcp) -> None:
             Result message confirming update
         """
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
 
             # Only include fields that are being updated
             data: Dict[str, Any] = {"id": document_id}
@@ -163,7 +166,10 @@ def register_tools(mcp) -> None:
         )
     )
     async def add_comment(
-        document_id: str, text: str, parent_comment_id: Optional[str] = None
+        document_id: str,
+        text: str,
+        parent_comment_id: Optional[str] = None,
+        ctx: Optional[Context] = None,
     ) -> str:
         """
         Adds a comment to a document or replies to an existing comment.
@@ -183,7 +189,7 @@ def register_tools(mcp) -> None:
             Result message with the new comment ID
         """
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
 
             data = {"documentId": document_id, "text": text}
 

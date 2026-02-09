@@ -7,6 +7,7 @@ documents efficiently.
 
 from typing import Any, Dict, List, Optional
 
+from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
 
 from mcp_outline.features.documents.common import (
@@ -125,7 +126,9 @@ def register_tools(mcp) -> None:
             idempotentHint=True,
         )
     )
-    async def batch_archive_documents(document_ids: List[str]) -> str:
+    async def batch_archive_documents(
+        document_ids: List[str], ctx: Optional[Context] = None
+    ) -> str:
         """
         Archives multiple documents in a single batch operation.
 
@@ -158,7 +161,7 @@ def register_tools(mcp) -> None:
         failed = 0
 
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
 
             for doc_id in document_ids:
                 try:
@@ -218,6 +221,7 @@ def register_tools(mcp) -> None:
         document_ids: List[str],
         collection_id: Optional[str] = None,
         parent_document_id: Optional[str] = None,
+        ctx: Optional[Context] = None,
     ) -> str:
         """
         Moves multiple documents to a different collection or parent.
@@ -259,7 +263,7 @@ def register_tools(mcp) -> None:
         failed = 0
 
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
 
             for doc_id in document_ids:
                 try:
@@ -327,7 +331,9 @@ def register_tools(mcp) -> None:
         )
     )
     async def batch_delete_documents(
-        document_ids: List[str], permanent: bool = False
+        document_ids: List[str],
+        permanent: bool = False,
+        ctx: Optional[Context] = None,
     ) -> str:
         """
         Deletes multiple documents, moving them to trash or permanently.
@@ -361,7 +367,7 @@ def register_tools(mcp) -> None:
         failed = 0
 
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
 
             for doc_id in document_ids:
                 try:
@@ -446,7 +452,9 @@ def register_tools(mcp) -> None:
             idempotentHint=True,
         )
     )
-    async def batch_update_documents(updates: List[Dict[str, Any]]) -> str:
+    async def batch_update_documents(
+        updates: List[Dict[str, Any]], ctx: Optional[Context] = None
+    ) -> str:
         """
         Updates multiple documents with different changes.
 
@@ -484,7 +492,7 @@ def register_tools(mcp) -> None:
         failed = 0
 
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
 
             for update_spec in updates:
                 doc_id = update_spec.get("id")
@@ -564,7 +572,9 @@ def register_tools(mcp) -> None:
             idempotentHint=True,
         )
     )
-    async def batch_create_documents(documents: List[Dict[str, Any]]) -> str:
+    async def batch_create_documents(
+        documents: List[Dict[str, Any]], ctx: Optional[Context] = None
+    ) -> str:
         """
         Creates multiple documents in a single batch operation.
 
@@ -606,7 +616,7 @@ def register_tools(mcp) -> None:
         created_ids: List[str] = []
 
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
 
             for doc_spec in documents:
                 # Validate required fields

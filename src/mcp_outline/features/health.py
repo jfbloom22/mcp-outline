@@ -8,6 +8,13 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 
+def _sanitize_error_message(message: str) -> str:
+    """Redact sensitive auth values from error messages."""
+    if "Bearer " in message:
+        return "Authentication failed."
+    return message
+
+
 def register_routes(mcp) -> None:
     """
     Register health check routes with the MCP server.
@@ -34,51 +41,44 @@ def register_routes(mcp) -> None:
         """
         Readiness check endpoint.
 
-        Verifies that:
-        1. The server is running
-        2. The Outline API key is configured
-        3. The server can connect to Outline
-        4. The API key is valid (by attempting collections.list)
-
-        Returns 200 OK with detailed status, or appropriate error if not ready.
+        Verifies process-level readiness for deployment.
 
         Returns:
-            JSON response with status and Outline connection info,
-            or error details if not ready
+            JSON response with server readiness details
         """
+        return JSONResponse(
+            {
+                "status": "ready",
+                "service": "mcp-outline",
+                "api_accessible": "per-request",
+            }
+        )
+
+    @mcp.custom_route(path="/auth/whoami", methods=["GET"])
+    async def auth_whoami(request: Request) -> JSONResponse:
+        """Validate request-scoped Outline credentials and return identity."""
         try:
-            # Import here to avoid circular imports
             from mcp_outline.features.documents.common import (
                 get_outline_client,
             )
 
-            # Get the outline client
-            client = await get_outline_client()
-
-            # Verify API connectivity by listing collections with limit=1
-            # This verifies:
-            # - Network connectivity to Outline
-            # - API key is valid
-            # - API endpoint is accessible
-            await client.post("collections.list", {"limit": 1})
-
-            # If we got here, everything is ready
+            client = await get_outline_client(request=request)
+            info = await client.auth_info()
+            team = info.get("team", {})
+            user = info.get("user", {})
             return JSONResponse(
                 {
-                    "status": "ready",
-                    "outline": "connected",
-                    "api_accessible": True,
+                    "status": "ok",
+                    "team": team.get("name"),
+                    "user": user.get("name"),
+                    "email": user.get("email"),
                 }
             )
-
         except Exception as e:
-            # Not ready - return error with status code
             return JSONResponse(
                 {
-                    "status": "not_ready",
-                    "outline": "disconnected",
-                    "api_accessible": False,
-                    "error": str(e),
+                    "status": "error",
+                    "error": _sanitize_error_message(str(e)),
                 },
-                status_code=503,  # Service Unavailable
+                status_code=401,
             )

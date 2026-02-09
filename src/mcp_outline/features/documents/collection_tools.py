@@ -7,6 +7,7 @@ This module provides MCP tools for managing collections.
 import os
 from typing import Any, Dict, Optional
 
+from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
 
 from mcp_outline.features.documents.common import (
@@ -77,7 +78,9 @@ def register_tools(mcp) -> None:
         )
     )
     async def export_collection(
-        collection_id: str, format: str = "outline-markdown"
+        collection_id: str,
+        format: str = "outline-markdown",
+        ctx: Optional[Context] = None,
     ) -> str:
         """
         Exports all documents in a collection to a downloadable file.
@@ -104,7 +107,7 @@ def register_tools(mcp) -> None:
             Information about the export operation and how to access the file
         """
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
             file_operation = await client.export_collection(
                 collection_id, format
             )
@@ -125,7 +128,9 @@ def register_tools(mcp) -> None:
             idempotentHint=True,
         )
     )
-    async def export_all_collections(format: str = "outline-markdown") -> str:
+    async def export_all_collections(
+        format: str = "outline-markdown", ctx: Optional[Context] = None
+    ) -> str:
         """
         Exports the entire workspace content to a downloadable file.
 
@@ -150,7 +155,7 @@ def register_tools(mcp) -> None:
             Information about the export operation and how to access the file
         """
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
             file_operation = await client.export_all_collections(format)
 
             if not file_operation:
@@ -173,7 +178,10 @@ def register_tools(mcp) -> None:
             )
         )
         async def create_collection(
-            name: str, description: str = "", color: Optional[str] = None
+            name: str,
+            description: str = "",
+            color: Optional[str] = None,
+            ctx: Optional[Context] = None,
         ) -> str:
             """
             Creates a new collection for organizing documents.
@@ -195,7 +203,7 @@ def register_tools(mcp) -> None:
                 Result message with the new collection ID
             """
             try:
-                client = await get_outline_client()
+                client = await get_outline_client(ctx=ctx)
                 collection = await client.create_collection(
                     name, description, color
                 )
@@ -227,6 +235,7 @@ def register_tools(mcp) -> None:
             name: Optional[str] = None,
             description: Optional[str] = None,
             color: Optional[str] = None,
+            ctx: Optional[Context] = None,
         ) -> str:
             """
             Modifies an existing collection's properties.
@@ -247,7 +256,7 @@ def register_tools(mcp) -> None:
                 Result message confirming update
             """
             try:
-                client = await get_outline_client()
+                client = await get_outline_client(ctx=ctx)
 
                 # Make sure at least one field is being updated
                 if name is None and description is None and color is None:
@@ -280,7 +289,9 @@ def register_tools(mcp) -> None:
                 idempotentHint=True,
             )
         )
-        async def delete_collection(collection_id: str) -> str:
+        async def delete_collection(
+            collection_id: str, ctx: Optional[Context] = None
+        ) -> str:
             """
             Permanently removes a collection and all its documents.
 
@@ -300,7 +311,7 @@ def register_tools(mcp) -> None:
                 Result message confirming deletion
             """
             try:
-                client = await get_outline_client()
+                client = await get_outline_client(ctx=ctx)
                 success = await client.delete_collection(collection_id)
 
                 if success:

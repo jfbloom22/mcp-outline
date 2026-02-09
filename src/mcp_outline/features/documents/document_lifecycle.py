@@ -6,7 +6,9 @@ documents.
 """
 
 import os
+from typing import Optional
 
+from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
 
 from mcp_outline.features.documents.common import (
@@ -33,7 +35,9 @@ def register_tools(mcp) -> None:
             readOnlyHint=False, destructiveHint=True, idempotentHint=True
         )
     )
-    async def archive_document(document_id: str) -> str:
+    async def archive_document(
+        document_id: str, ctx: Optional[Context] = None
+    ) -> str:
         """
         Archives a document to remove it from active use while preserving it.
 
@@ -54,7 +58,7 @@ def register_tools(mcp) -> None:
             Result message confirming archival
         """
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
             document = await client.archive_document(document_id)
 
             if not document:
@@ -73,7 +77,9 @@ def register_tools(mcp) -> None:
             readOnlyHint=False, destructiveHint=False, idempotentHint=True
         )
     )
-    async def unarchive_document(document_id: str) -> str:
+    async def unarchive_document(
+        document_id: str, ctx: Optional[Context] = None
+    ) -> str:
         """
         Restores a previously archived document to active status.
 
@@ -90,7 +96,7 @@ def register_tools(mcp) -> None:
             Result message confirming restoration
         """
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
             document = await client.unarchive_document(document_id)
 
             if not document:
@@ -112,7 +118,9 @@ def register_tools(mcp) -> None:
             )
         )
         async def delete_document(
-            document_id: str, permanent: bool = False
+            document_id: str,
+            permanent: bool = False,
+            ctx: Optional[Context] = None,
         ) -> str:
             """
             Moves a document to trash or permanently deletes it.
@@ -139,7 +147,7 @@ def register_tools(mcp) -> None:
                 Result message confirming deletion
             """
             try:
-                client = await get_outline_client()
+                client = await get_outline_client(ctx=ctx)
 
                 if permanent:
                     success = await client.permanently_delete_document(
@@ -175,7 +183,9 @@ def register_tools(mcp) -> None:
             readOnlyHint=False, destructiveHint=False, idempotentHint=True
         )
     )
-    async def restore_document(document_id: str) -> str:
+    async def restore_document(
+        document_id: str, ctx: Optional[Context] = None
+    ) -> str:
         """
         Recovers a document from the trash back to active status.
 
@@ -192,7 +202,7 @@ def register_tools(mcp) -> None:
             Result message confirming restoration
         """
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
             document = await client.restore_document(document_id)
 
             if not document:
@@ -211,7 +221,9 @@ def register_tools(mcp) -> None:
             readOnlyHint=True, destructiveHint=False, idempotentHint=True
         )
     )
-    async def list_archived_documents() -> str:
+    async def list_archived_documents(
+        ctx: Optional[Context] = None,
+    ) -> str:
         """
         Displays all documents that have been archived.
 
@@ -225,7 +237,7 @@ def register_tools(mcp) -> None:
             Formatted string containing list of archived documents
         """
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
             response = await client.post("documents.archived")
             from mcp_outline.features.documents.document_search import (
                 _format_documents_list,
@@ -243,7 +255,7 @@ def register_tools(mcp) -> None:
             readOnlyHint=True, destructiveHint=False, idempotentHint=True
         )
     )
-    async def list_trash() -> str:
+    async def list_trash(ctx: Optional[Context] = None) -> str:
         """
         Displays all documents currently in the trash.
 
@@ -257,7 +269,7 @@ def register_tools(mcp) -> None:
             Formatted string containing list of documents in trash
         """
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
             documents = await client.list_trash()
             from mcp_outline.features.documents.document_search import (
                 _format_documents_list,

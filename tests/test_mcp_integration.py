@@ -6,6 +6,7 @@ MCP protocol.
 """
 
 import os
+import sys
 
 import pytest
 from mcp.client.session import ClientSession
@@ -29,7 +30,7 @@ async def test_mcp_server_integration():
     env["MCP_TRANSPORT"] = "stdio"
 
     server_params = StdioServerParameters(
-        command="python", args=["-m", "mcp_outline"], env=env
+        command=sys.executable, args=["-m", "mcp_outline"], env=env
     )
 
     async with stdio_client(server_params) as (read, write):

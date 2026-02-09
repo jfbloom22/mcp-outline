@@ -5,8 +5,9 @@ This module provides MCP tools for document comments, sharing, and
 collaboration.
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
+from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
 
 from mcp_outline.features.documents.common import (
@@ -86,6 +87,7 @@ def register_tools(mcp) -> None:
         include_anchor_text: bool = False,
         limit: int = 25,
         offset: int = 0,
+        ctx: Optional[Context] = None,
     ) -> str:
         """
         Retrieves comments on a specific document with pagination support.
@@ -114,7 +116,7 @@ def register_tools(mcp) -> None:
             optional anchor text
         """
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
             data = {
                 "documentId": document_id,
                 "includeAnchorText": include_anchor_text,
@@ -137,7 +139,9 @@ def register_tools(mcp) -> None:
         annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True)
     )
     async def get_comment(
-        comment_id: str, include_anchor_text: bool = False
+        comment_id: str,
+        include_anchor_text: bool = False,
+        ctx: Optional[Context] = None,
     ) -> str:
         """
         Retrieves a specific comment by its ID.
@@ -157,7 +161,7 @@ def register_tools(mcp) -> None:
             Formatted string with the comment content and metadata
         """
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
             response = await client.post(
                 "comments.info",
                 {"id": comment_id, "includeAnchorText": include_anchor_text},
@@ -201,7 +205,9 @@ def register_tools(mcp) -> None:
     @mcp.tool(
         annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True)
     )
-    async def get_document_backlinks(document_id: str) -> str:
+    async def get_document_backlinks(
+        document_id: str, ctx: Optional[Context] = None
+    ) -> str:
         """
         Finds all documents that link to a specific document.
 
@@ -219,7 +225,7 @@ def register_tools(mcp) -> None:
             the specified document
         """
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
             response = await client.post(
                 "documents.list", {"backlinkDocumentId": document_id}
             )

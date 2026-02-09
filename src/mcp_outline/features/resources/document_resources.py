@@ -4,6 +4,10 @@ Document-related MCP resources.
 Provides direct access to document content and backlinks via URIs.
 """
 
+from typing import Optional
+
+from mcp.server.fastmcp import Context
+
 from mcp_outline.features.documents.common import (
     OutlineClientError,
     get_outline_client,
@@ -43,7 +47,9 @@ def register_resources(mcp):
     """Register document-related resources."""
 
     @mcp.resource("outline://document/{document_id}")
-    async def get_document_content(document_id: str) -> str:
+    async def get_document_content(
+        document_id: str, ctx: Optional[Context] = None
+    ) -> str:
         """
         Get full document content in markdown format.
 
@@ -54,7 +60,7 @@ def register_resources(mcp):
             Document content as markdown
         """
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
             document = await client.get_document(document_id)
 
             # Return the markdown text content
@@ -67,7 +73,9 @@ def register_resources(mcp):
             return f"Error: {str(e)}"
 
     @mcp.resource("outline://document/{document_id}/backlinks")
-    async def get_document_backlinks(document_id: str) -> str:
+    async def get_document_backlinks(
+        document_id: str, ctx: Optional[Context] = None
+    ) -> str:
         """
         Get documents that link to this document.
 
@@ -78,7 +86,7 @@ def register_resources(mcp):
             Formatted list of backlinks
         """
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
             # Use direct API call to get backlinks
             response = await client.post(
                 "documents.list", {"backlinkDocumentId": document_id}

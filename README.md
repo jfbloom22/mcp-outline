@@ -65,6 +65,11 @@ docker run -e OUTLINE_API_KEY=<your-key> mcp-outline
 | `MCP_TRANSPORT` | No | `stdio` | Transport mode: `stdio` (local), `sse` or `streamable-http` (remote) |
 | `MCP_HOST` | No | `127.0.0.1` | Server host. Use `0.0.0.0` in Docker for external connections |
 | `MCP_PORT` | No | `3000` | HTTP server port (only for `sse` and `streamable-http` modes) |
+| `MCP_STREAMABLE_HTTP_PATH` | No | `/mcp` | HTTP path for streamable transport (e.g. `/outline`) |
+| `MCP_STATELESS_HTTP` | No | `false` | Set `true` for hosted multi-tenant isolation |
+| `OUTLINE_REQUIRE_PASSTHROUGH` | No | `false` | Set `true` to require header-based tenant credentials |
+| `OUTLINE_ALLOWED_API_URL_HOSTS` | No | - | Comma-separated allowlist for `X-Outline-Api-Url` hosts |
+| `OUTLINE_DEFAULT_API_URL` | No | `https://app.getoutline.com/api` | Default API URL when header URL is omitted |
 
 ## Access Control
 
@@ -129,6 +134,30 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (or `%APP
 </details>
 
 <details>
+<summary><b>Add Hosted Cursor Server (Header Passthrough)</b></summary>
+
+For shared hosted deployments (VPS), configure Cursor with URL + headers:
+
+```json
+{
+  "mcpServers": {
+    "outline-shared": {
+      "url": "https://mcp.example.com/outline",
+      "headers": {
+        "Authorization": "Bearer ${env:OUTLINE_API_KEY}",
+        "X-Outline-Api-Url": "${env:OUTLINE_API_URL}"
+      }
+    }
+  }
+}
+```
+
+Set `OUTLINE_API_KEY` and `OUTLINE_API_URL` once in your local shell/OS.
+Use `whoami_outline` (tool) or `GET /auth/whoami` to verify credentials.
+
+</details>
+
+<details>
 <summary><b>Add to Cursor</b></summary>
 
 Go to **Settings → MCP** and click **Add Server**:
@@ -144,6 +173,47 @@ Go to **Settings → MCP** and click **Add Server**:
     }
   }
 }
+```
+
+</details>
+
+<details>
+<summary><b>Add Hosted Server to OpenAI Codex</b></summary>
+
+Reference: OpenAI Docs MCP quickstart for Codex:
+https://platform.openai.com/docs/docs-mcp
+
+Use Codex MCP with a hosted streamable HTTP endpoint:
+
+```bash
+codex mcp add outline-shared \
+  --url "https://mcp.example.com/outline" \
+  --bearer-token-env-var OUTLINE_API_KEY
+```
+
+Set your local env vars once:
+
+```bash
+export OUTLINE_API_KEY="your_outline_api_key"
+export OUTLINE_API_URL="https://outline.example.com/api"
+```
+
+If your hosted server expects `X-Outline-Api-Url`, add an env-backed header
+in `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.outline-shared]
+url = "https://mcp.example.com/outline"
+bearer_token_env_var = "OUTLINE_API_KEY"
+
+[mcp_servers.outline-shared.env_http_headers]
+X-Outline-Api-Url = "OUTLINE_API_URL"
+```
+
+Verify:
+
+```bash
+codex mcp get outline-shared
 ```
 
 </details>
@@ -453,6 +523,11 @@ The server automatically handles rate limiting with retry logic. If you see pers
 ## Contributing
 
 Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions.
+
+## Roadmap
+
+See [docs/roadmap.md](docs/roadmap.md) for the current roadmap and upcoming
+refactor milestones.
 
 ## License
 

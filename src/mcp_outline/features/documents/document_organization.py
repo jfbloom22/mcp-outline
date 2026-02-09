@@ -6,6 +6,7 @@ This module provides MCP tools for organizing documents.
 
 from typing import Optional
 
+from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
 
 from mcp_outline.features.documents.common import (
@@ -33,6 +34,7 @@ def register_tools(mcp) -> None:
         document_id: str,
         collection_id: Optional[str] = None,
         parent_document_id: Optional[str] = None,
+        ctx: Optional[Context] = None,
     ) -> str:
         """
         Relocates a document to a different collection or parent document.
@@ -57,7 +59,7 @@ def register_tools(mcp) -> None:
             Result message confirming the move operation
         """
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
 
             # Require at least one destination parameter
             if collection_id is None and parent_document_id is None:

@@ -4,6 +4,10 @@ Collection-related MCP resources.
 Provides direct access to collection metadata and document lists via URIs.
 """
 
+from typing import Optional
+
+from mcp.server.fastmcp import Context
+
 from mcp_outline.features.documents.common import (
     OutlineClientError,
     get_outline_client,
@@ -94,7 +98,9 @@ def register_resources(mcp):
     """Register collection-related resources."""
 
     @mcp.resource("outline://collection/{collection_id}")
-    async def get_collection_metadata(collection_id: str) -> str:
+    async def get_collection_metadata(
+        collection_id: str, ctx: Optional[Context] = None
+    ) -> str:
         """
         Get collection metadata and properties.
 
@@ -105,7 +111,7 @@ def register_resources(mcp):
             Formatted collection metadata
         """
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
             # Get collection directly by ID
             collection = await client.get_collection(collection_id)
             return _format_collection_metadata(collection)
@@ -117,7 +123,9 @@ def register_resources(mcp):
             return f"Error: {str(e)}"
 
     @mcp.resource("outline://collection/{collection_id}/tree")
-    async def get_collection_tree(collection_id: str) -> str:
+    async def get_collection_tree(
+        collection_id: str, ctx: Optional[Context] = None
+    ) -> str:
         """
         Get hierarchical document tree for a collection.
 
@@ -128,7 +136,7 @@ def register_resources(mcp):
             Formatted document tree
         """
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
             documents = await client.get_collection_documents(collection_id)
 
             if not documents:
@@ -145,7 +153,9 @@ def register_resources(mcp):
             return f"Error: {str(e)}"
 
     @mcp.resource("outline://collection/{collection_id}/documents")
-    async def get_collection_documents(collection_id: str) -> str:
+    async def get_collection_documents(
+        collection_id: str, ctx: Optional[Context] = None
+    ) -> str:
         """
         Get list of documents in a collection.
 
@@ -156,7 +166,7 @@ def register_resources(mcp):
             Formatted document list
         """
         try:
-            client = await get_outline_client()
+            client = await get_outline_client(ctx=ctx)
             # Get all documents in the collection
             documents = await client.list_documents(
                 collection_id=collection_id
