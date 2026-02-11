@@ -5,7 +5,6 @@ This module provides MCP tools for archiving, trashing, and restoring
 documents.
 """
 
-import os
 from typing import Optional
 
 from mcp.server.fastmcp import Context
@@ -24,11 +23,6 @@ def register_tools(mcp) -> None:
     Args:
         mcp: The FastMCP server instance
     """
-    disable_delete = os.getenv("OUTLINE_DISABLE_DELETE", "").lower() in (
-        "true",
-        "1",
-        "yes",
-    )
 
     @mcp.tool(
         annotations=ToolAnnotations(
@@ -110,73 +104,69 @@ def register_tools(mcp) -> None:
         except Exception as e:
             return f"Unexpected error: {str(e)}"
 
-    if not disable_delete:
-
-        @mcp.tool(
-            annotations=ToolAnnotations(
-                readOnlyHint=False, destructiveHint=True, idempotentHint=True
-            )
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            readOnlyHint=False, destructiveHint=True, idempotentHint=True
         )
-        async def delete_document(
-            document_id: str,
-            permanent: bool = False,
-            ctx: Optional[Context] = None,
-        ) -> str:
-            """
-            Moves a document to trash or permanently deletes it.
+    )
+    async def delete_document(
+        document_id: str,
+        permanent: bool = False,
+        ctx: Optional[Context] = None,
+    ) -> str:
+        """
+        Moves a document to trash or permanently deletes it.
 
-            IMPORTANT: When permanent=False (the default), documents are
-            moved to trash and retained for 30 days before being
-            permanently deleted. During this period, they can be restored
-            using the restore_document tool. Setting permanent=True
-            bypasses the trash and immediately deletes the document
-            without any recovery option.
+        IMPORTANT: When permanent=False (the default), documents are
+        moved to trash and retained for 30 days before being
+        permanently deleted. During this period, they can be restored
+        using the restore_document tool. Setting permanent=True
+        bypasses the trash and immediately deletes the document
+        without any recovery option.
 
-            Use this tool when you need to:
-            - Remove unwanted or unnecessary documents
-            - Delete obsolete content
-            - Clean up workspace by removing documents
-            - Permanently remove sensitive information (with permanent=True)
+        Use this tool when you need to:
+        - Remove unwanted or unnecessary documents
+        - Delete obsolete content
+        - Clean up workspace by removing documents
+        - Permanently remove sensitive information (with permanent=True)
 
-            Args:
-                document_id: The document ID to delete
-                permanent: If True, permanently deletes the document without
-                    recovery option
+        Args:
+            document_id: The document ID to delete
+            permanent: If True, permanently deletes the document without
+                recovery option
 
-            Returns:
-                Result message confirming deletion
-            """
-            try:
-                client = await get_outline_client(ctx=ctx)
+        Returns:
+            Result message confirming deletion
+        """
+        try:
+            client = await get_outline_client(ctx=ctx)
 
-                if permanent:
-                    success = await client.permanently_delete_document(
-                        document_id
-                    )
-                    if success:
-                        return "Document permanently deleted."
-                    else:
-                        return "Failed to permanently delete document."
+            if permanent:
+                success = await client.permanently_delete_document(document_id)
+                if success:
+                    return "Document permanently deleted."
                 else:
-                    # First get the document details for the success message
-                    document = await client.get_document(document_id)
-                    doc_title = document.get("title", "Untitled")
+                    return "Failed to permanently delete document."
+            else:
+                # First get the document details for the success message
+                document = await client.get_document(document_id)
+                doc_title = document.get("title", "Untitled")
 
-                    # Move to trash (using the regular delete endpoint)
-                    response = await client.post(
-                        "documents.delete", {"id": document_id}
-                    )
+                # Move to trash (using the regular delete endpoint)
+                response = await client.post(
+                    "documents.delete", {"id": document_id}
+                )
 
-                    # Check for successful response
-                    if response.get("success", False):
-                        return f"Document moved to trash: {doc_title}"
-                    else:
-                        return "Failed to move document to trash."
+                # Check for successful response
+                if response.get("success", False):
+                    return f"Document moved to trash: {doc_title}"
+                else:
+                    return "Failed to move document to trash."
 
-            except OutlineClientError as e:
-                return f"Error deleting document: {str(e)}"
-            except Exception as e:
-                return f"Unexpected error: {str(e)}"
+        except OutlineClientError as e:
+            return f"Error deleting document: {str(e)}"
+        except Exception as e:
+            return f"Unexpected error: {str(e)}"
 
     @mcp.tool(
         annotations=ToolAnnotations(

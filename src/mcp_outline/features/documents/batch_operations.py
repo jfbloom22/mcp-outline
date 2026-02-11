@@ -12,6 +12,7 @@ from mcp.types import ToolAnnotations
 
 from mcp_outline.features.documents.common import (
     OutlineClientError,
+    ensure_uuid_string,
     get_outline_client,
 )
 
@@ -258,6 +259,16 @@ def register_tools(mcp) -> None:
                 "parent_document_id."
             )
 
+        # Validate parent_document_id is a proper UUID before processing
+        parsed_parent_id: Optional[str] = None
+        if parent_document_id:
+            try:
+                parsed_parent_id = ensure_uuid_string(
+                    parent_document_id, "parent_document_id"
+                )
+            except ValueError as e:
+                return f"Error: {e}"
+
         results: List[Dict[str, Any]] = []
         succeeded = 0
         failed = 0
@@ -273,8 +284,8 @@ def register_tools(mcp) -> None:
                     if collection_id:
                         data["collectionId"] = collection_id
 
-                    if parent_document_id:
-                        data["parentDocumentId"] = parent_document_id
+                    if parsed_parent_id:
+                        data["parentDocumentId"] = parsed_parent_id
 
                     response = await client.post("documents.move", data)
 
@@ -652,9 +663,23 @@ def register_tools(mcp) -> None:
                     }
 
                     if "parent_document_id" in doc_spec:
-                        data["parentDocumentId"] = doc_spec[
-                            "parent_document_id"
-                        ]
+                        try:
+                            parsed = ensure_uuid_string(
+                                doc_spec["parent_document_id"],
+                                "parent_document_id",
+                            )
+                        except ValueError as e:
+                            results.append(
+                                _create_result_entry(
+                                    "unknown",
+                                    "failed",
+                                    error=str(e),
+                                )
+                            )
+                            failed += 1
+                            continue
+                        if parsed:
+                            data["parentDocumentId"] = parsed
 
                     response = await client.post("documents.create", data)
                     document = response.get("data", {})

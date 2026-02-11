@@ -125,7 +125,7 @@ class TestDocumentContentTools:
             title="Test Document",
             collection_id="col123",
             text="This is a test document.",
-            parent_document_id="parent123",
+            parent_document_id="580b8429-8da4-4409-a2ad-f86e194074b6",
         )
 
         # Verify parent document ID was included in the call
@@ -134,7 +134,9 @@ class TestDocumentContentTools:
 
         assert call_args[0] == "documents.create"
         assert "parentDocumentId" in call_args[1]
-        assert call_args[1]["parentDocumentId"] == "parent123"
+        assert call_args[1]["parentDocumentId"] == (
+            "580b8429-8da4-4409-a2ad-f86e194074b6"
+        )
 
     @pytest.mark.asyncio
     @patch(

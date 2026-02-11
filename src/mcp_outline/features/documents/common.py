@@ -1,7 +1,8 @@
 """Common utilities shared by tools and resources."""
 
 import os
-from typing import Optional
+import uuid
+from typing import Any, Optional
 
 from mcp.server.fastmcp import Context
 from starlette.requests import Request
@@ -15,6 +16,39 @@ class OutlineClientError(Exception):
     """Exception raised for errors in document outline client operations."""
 
     pass
+
+
+def ensure_uuid_string(value: Any, param_name: str) -> Optional[str]:
+    """
+    Normalize and validate a UUID parameter for Outline API.
+
+    MCP clients may pass UUIDs as different types (e.g. int from JSON
+    coercion). The Outline API requires a proper UUID string. This ensures we
+    always send a valid string and fail fast with a clear error when invalid.
+
+    Args:
+        value: Raw value (may be str, int, etc. from JSON).
+        param_name: Name for error messages.
+
+    Returns:
+        Validated UUID string in canonical form, or None if value is
+        None/empty.
+
+    Raises:
+        ValueError: If value is non-empty but not a valid UUID.
+    """
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    try:
+        return str(uuid.UUID(s))
+    except ValueError:
+        raise ValueError(
+            f"{param_name} must be a valid UUID "
+            "(e.g. 580b8429-8da4-4409-a2ad-f86e194074b6), got invalid value"
+        )
 
 
 def _get_request_from_context(ctx: Optional[Context]) -> Optional[Request]:

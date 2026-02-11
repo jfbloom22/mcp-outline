@@ -85,12 +85,13 @@ class TestMoveDocument:
         mock_client.post.return_value = SAMPLE_MOVE_RESPONSE
         mock_get_client.return_value = mock_client
 
+        parent_id = "580b8429-8da4-4409-a2ad-f86e194074b6"
         result = await register_organization_tools.tools["move_document"](
-            document_id="doc123", parent_document_id="parent456"
+            document_id="doc123", parent_document_id=parent_id
         )
 
         mock_client.post.assert_called_once_with(
-            "documents.move", {"id": "doc123", "parentDocumentId": "parent456"}
+            "documents.move", {"id": "doc123", "parentDocumentId": parent_id}
         )
         assert "Document moved successfully" in result
 
@@ -106,10 +107,11 @@ class TestMoveDocument:
         mock_client.post.return_value = SAMPLE_MOVE_RESPONSE
         mock_get_client.return_value = mock_client
 
+        parent_id = "580b8429-8da4-4409-a2ad-f86e194074b6"
         result = await register_organization_tools.tools["move_document"](
             document_id="doc123",
             collection_id="col456",
-            parent_document_id="parent789",
+            parent_document_id=parent_id,
         )
 
         mock_client.post.assert_called_once_with(
@@ -117,10 +119,30 @@ class TestMoveDocument:
             {
                 "id": "doc123",
                 "collectionId": "col456",
-                "parentDocumentId": "parent789",
+                "parentDocumentId": parent_id,
             },
         )
         assert "Document moved successfully" in result
+
+    @pytest.mark.asyncio
+    @patch(
+        "mcp_outline.features.documents.document_organization.get_outline_client"
+    )
+    async def test_move_document_invalid_parent_id_rejected(
+        self, mock_get_client, register_organization_tools
+    ):
+        """Test move_document rejects invalid parent_document_id."""
+        mock_client = AsyncMock()
+        mock_get_client.return_value = mock_client
+
+        # Simulate type coercion (580 from truncated UUID) or invalid string
+        result = await register_organization_tools.tools["move_document"](
+            document_id="doc123", parent_document_id="580"
+        )
+
+        mock_client.post.assert_not_called()
+        assert "Error" in result
+        assert "valid UUID" in result
 
     @pytest.mark.asyncio
     @patch(

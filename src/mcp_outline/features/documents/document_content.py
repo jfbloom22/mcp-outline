@@ -11,6 +11,7 @@ from mcp.types import ToolAnnotations
 
 from mcp_outline.features.documents.common import (
     OutlineClientError,
+    ensure_uuid_string,
     get_outline_client,
 )
 
@@ -72,7 +73,14 @@ def register_tools(mcp) -> None:
             }
 
             if parent_document_id:
-                data["parentDocumentId"] = parent_document_id
+                try:
+                    parsed = ensure_uuid_string(
+                        parent_document_id, "parent_document_id"
+                    )
+                except ValueError as e:
+                    return f"Error: {e}"
+                if parsed:
+                    data["parentDocumentId"] = parsed
 
             response = await client.post("documents.create", data)
             document = response.get("data", {})

@@ -11,6 +11,7 @@ from mcp.types import ToolAnnotations
 
 from mcp_outline.features.documents.common import (
     OutlineClientError,
+    ensure_uuid_string,
     get_outline_client,
 )
 
@@ -68,13 +69,22 @@ def register_tools(mcp) -> None:
                     "parent_document_id."
                 )
 
-            data = {"id": document_id}
+            # Validate parent_document_id is a proper UUID (avoids truncation
+            # or type coercion when clients pass numbers or invalid formats)
+            parsed_parent_id: Optional[str] = None
+            if parent_document_id:
+                try:
+                    parsed_parent_id = ensure_uuid_string(
+                        parent_document_id, "parent_document_id"
+                    )
+                except ValueError as e:
+                    return f"Error: {e}"
 
+            data = {"id": document_id}
             if collection_id:
                 data["collectionId"] = collection_id
-
-            if parent_document_id:
-                data["parentDocumentId"] = parent_document_id
+            if parsed_parent_id:
+                data["parentDocumentId"] = parsed_parent_id
 
             response = await client.post("documents.move", data)
 

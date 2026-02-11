@@ -248,15 +248,16 @@ class TestBatchMoveDocuments:
         }
         mock_get_client.return_value = mock_client
 
+        parent_id = "580b8429-8da4-4409-a2ad-f86e194074b6"
         result = await register_batch_tools.tools["batch_move_documents"](
-            ["doc1"], parent_document_id="parent123"
+            ["doc1"], parent_document_id=parent_id
         )
 
         assert "Succeeded: 1" in result
         mock_client.post.assert_called_once()
         call_args = mock_client.post.call_args[0]
         assert call_args[0] == "documents.move"
-        assert call_args[1]["parentDocumentId"] == "parent123"
+        assert call_args[1]["parentDocumentId"] == parent_id
 
     @pytest.mark.asyncio
     @patch(
@@ -296,6 +297,18 @@ class TestBatchMoveDocuments:
         )
 
         assert "Error: No document IDs provided" in result
+
+    @pytest.mark.asyncio
+    async def test_batch_move_invalid_parent_id_rejected(
+        self, register_batch_tools
+    ):
+        """Test batch_move_documents rejects invalid parent_document_id."""
+        result = await register_batch_tools.tools["batch_move_documents"](
+            ["doc1"], parent_document_id="580"
+        )
+
+        assert "Error" in result
+        assert "valid UUID" in result
 
 
 class TestBatchDeleteDocuments:
@@ -595,11 +608,12 @@ class TestBatchCreateDocuments:
         }
         mock_get_client.return_value = mock_client
 
+        parent_id = "580b8429-8da4-4409-a2ad-f86e194074b6"
         documents = [
             {
                 "title": "Child",
                 "collection_id": "col1",
-                "parent_document_id": "parent123",
+                "parent_document_id": parent_id,
             }
         ]
 
@@ -609,7 +623,7 @@ class TestBatchCreateDocuments:
 
         assert "Succeeded: 1" in result
         call_args = mock_client.post.call_args[0]
-        assert call_args[1]["parentDocumentId"] == "parent123"
+        assert call_args[1]["parentDocumentId"] == parent_id
 
     @pytest.mark.asyncio
     @patch(
