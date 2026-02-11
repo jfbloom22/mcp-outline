@@ -41,6 +41,14 @@ class TestEnsureUuidString:
         assert "parent_document_id" in str(exc_info.value)
         assert "valid UUID" in str(exc_info.value)
 
+    def test_invalid_uuid_error_includes_received_value(self):
+        """Error message includes received value for debugging."""
+        with pytest.raises(ValueError) as exc_info:
+            ensure_uuid_string(580, "parent_document_id")
+        err = str(exc_info.value)
+        assert "580" in err
+        assert "int" in err
+
     def test_truncated_uuid_raises_value_error(self):
         """Truncated UUID (e.g. from type coercion) raises ValueError."""
         with pytest.raises(ValueError):

@@ -47,7 +47,8 @@ def ensure_uuid_string(value: Any, param_name: str) -> Optional[str]:
     except ValueError:
         raise ValueError(
             f"{param_name} must be a valid UUID "
-            "(e.g. 580b8429-8da4-4409-a2ad-f86e194074b6), got invalid value"
+            "(e.g. 580b8429-8da4-4409-a2ad-f86e194074b6), "
+            f"received: {value!r} (type: {type(value).__name__})"
         )
 
 

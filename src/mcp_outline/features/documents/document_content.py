@@ -55,7 +55,9 @@ def register_tools(mcp) -> None:
             title: The document title
             collection_id: The collection ID to create the document in
             text: Optional markdown content for the document
-            parent_document_id: Optional parent document ID for nesting
+            parent_document_id: Full UUID string (e.g.
+                580b8429-8da4-4409-a2ad-f86e194074b6) for nesting. Must be the
+                complete UUID, not a truncated value or number.
             publish: Whether to publish the document immediately (True) or
                 save as draft (False)
 

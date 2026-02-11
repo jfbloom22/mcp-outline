@@ -54,7 +54,9 @@ def register_tools(mcp) -> None:
         Args:
             document_id: The document ID to move
             collection_id: Target collection ID (if moving between collections)
-            parent_document_id: Optional parent document ID (for nesting)
+            parent_document_id: Full UUID string (e.g.
+                580b8429-8da4-4409-a2ad-f86e194074b6) for nesting. Must be the
+                complete UUID, not a truncated value or number.
 
         Returns:
             Result message confirming the move operation

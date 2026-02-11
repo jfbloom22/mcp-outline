@@ -245,7 +245,9 @@ def register_tools(mcp) -> None:
         Args:
             document_ids: List of document IDs to move
             collection_id: Target collection ID (optional)
-            parent_document_id: Target parent document ID (optional)
+            parent_document_id: Full UUID string (e.g.
+                580b8429-8da4-4409-a2ad-f86e194074b6). Must be the complete
+                UUID, not a truncated value or number.
 
         Returns:
             Summary of batch operation with success/failure details
@@ -596,7 +598,8 @@ def register_tools(mcp) -> None:
         - title (required): Document title
         - collection_id (required): Collection ID to create in
         - text (optional): Markdown content
-        - parent_document_id (optional): Parent document for nesting
+        - parent_document_id (optional): Full UUID string for nesting.
+            Must be the complete UUID, not truncated or numeric.
         - publish (optional): Whether to publish immediately (default: True)
 
         Use this tool when you need to:
