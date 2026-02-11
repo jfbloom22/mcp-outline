@@ -26,7 +26,7 @@ def register(
         api_key: Optional API key for Outline
         api_url: Optional API URL for Outline
     """
-    # Always register read-only tools
+    # Always register all tools, relying on Outline's native API scopes
     document_search.register_tools(mcp)
     document_reading.register_tools(mcp)
     document_collaboration.register_tools(mcp)
@@ -40,13 +40,8 @@ def register(
     ):
         ai_tools.register_tools(mcp)
 
-    # Conditionally register write tools (disabled in read-only mode)
-    if os.getenv("OUTLINE_READ_ONLY", "").lower() not in (
-        "true",
-        "1",
-        "yes",
-    ):
-        document_content.register_tools(mcp)
-        document_lifecycle.register_tools(mcp)
-        document_organization.register_tools(mcp)
-        batch_operations.register_tools(mcp)
+    # Register write tools
+    document_content.register_tools(mcp)
+    document_lifecycle.register_tools(mcp)
+    document_organization.register_tools(mcp)
+    batch_operations.register_tools(mcp)

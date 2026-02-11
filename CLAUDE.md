@@ -206,14 +206,11 @@ OUTLINE_MAX_KEEPALIVE=20                   # Optional - Max keepalive
 OUTLINE_TIMEOUT=30.0                       # Optional - Request timeout
 OUTLINE_CONNECT_TIMEOUT=5.0                # Optional - Connect timeout
 OUTLINE_DISABLE_AI_TOOLS=true              # Optional - Disable AI tools
-OUTLINE_READ_ONLY=true                     # Optional - Disable all write operations
-OUTLINE_DISABLE_DELETE=true                # Optional - Disable delete operations only
 ```
 
 **Access Control Notes**:
-- `OUTLINE_READ_ONLY`: Blocks entire write modules at registration (content, lifecycle, organization, batch_operations)
-- `OUTLINE_DISABLE_DELETE`: Conditionally registers delete tools within document_lifecycle and collection_tools
-- Read-only mode takes precedence: If both are set, server operates in read-only mode
+- The server relies on Outline's native API key scopes and permissions.
+- `OUTLINE_DISABLE_AI_TOOLS`: Disables AI-powered tools.
 
 ### Critical Requirements
 

@@ -31,11 +31,19 @@ class MockMCP:
 # Sample test data
 SAMPLE_SEARCH_RESULTS = [
     {
-        "document": {"id": "doc1", "urlId": "test-doc-1", "title": "Test Document 1"},
+        "document": {
+            "id": "doc1",
+            "urlId": "test-doc-1",
+            "title": "Test Document 1",
+        },
         "context": "This is a test document.",
     },
     {
-        "document": {"id": "doc2", "urlId": "test-doc-2", "title": "Test Document 2"},
+        "document": {
+            "id": "doc2",
+            "urlId": "test-doc-2",
+            "title": "Test Document 2",
+        },
         "context": "Another test document.",
     },
 ]
@@ -62,7 +70,12 @@ SAMPLE_COLLECTIONS = [
         "name": "Test Collection 1",
         "description": "Collection description",
     },
-    {"id": "coll2", "urlId": "test-coll-2", "name": "Test Collection 2", "description": ""},
+    {
+        "id": "coll2",
+        "urlId": "test-coll-2",
+        "name": "Test Collection 2",
+        "description": "",
+    },
 ]
 
 SAMPLE_COLLECTION_DOCUMENTS = [
@@ -71,7 +84,12 @@ SAMPLE_COLLECTION_DOCUMENTS = [
         "urlId": "root-doc",
         "title": "Root Document",
         "children": [
-            {"id": "doc2", "urlId": "child-doc", "title": "Child Document", "children": []}
+            {
+                "id": "doc2",
+                "urlId": "child-doc",
+                "title": "Child Document",
+                "children": [],
+            }
         ],
     }
 ]
