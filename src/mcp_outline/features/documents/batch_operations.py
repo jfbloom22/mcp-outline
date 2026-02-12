@@ -12,8 +12,10 @@ from mcp.types import ToolAnnotations
 
 from mcp_outline.features.documents.common import (
     OutlineClientError,
+    ensure_text_is_str,
     ensure_uuid_string,
     get_outline_client,
+    require_uuid_string,
 )
 
 
@@ -515,21 +517,23 @@ def register_tools(mcp) -> None:
                         _create_result_entry(
                             "unknown",
                             "failed",
-                            error="Missing document ID in update spec",
+                            error="Validation error: Missing document ID",
                         )
                     )
                     failed += 1
                     continue
 
                 try:
-                    # Build update data
-                    data: Dict[str, Any] = {"id": doc_id}
+                    data = {"id": require_uuid_string(doc_id, "document_id")}
 
                     if "title" in update_spec:
-                        data["title"] = update_spec["title"]
-
+                        data["title"] = ensure_text_is_str(
+                            update_spec["title"], "title"
+                        )
                     if "text" in update_spec:
-                        data["text"] = update_spec["text"]
+                        data["text"] = ensure_text_is_str(
+                            update_spec["text"], "text"
+                        )
                         data["append"] = update_spec.get("append", False)
 
                     response = await client.post("documents.update", data)
@@ -554,6 +558,15 @@ def register_tools(mcp) -> None:
                         )
                         failed += 1
 
+                except (TypeError, ValueError) as e:
+                    results.append(
+                        _create_result_entry(
+                            doc_id,
+                            "failed",
+                            error=f"Validation error: {e}",
+                        )
+                    )
+                    failed += 1
                 except OutlineClientError as e:
                     results.append(
                         _create_result_entry(doc_id, "failed", error=str(e))
@@ -657,30 +670,24 @@ def register_tools(mcp) -> None:
                     continue
 
                 try:
-                    # Build create data
                     data = {
-                        "title": doc_spec["title"],
-                        "collectionId": doc_spec["collection_id"],
-                        "text": doc_spec.get("text", ""),
+                        "title": ensure_text_is_str(
+                            doc_spec["title"], "title"
+                        ),
+                        "collectionId": require_uuid_string(
+                            doc_spec["collection_id"], "collection_id"
+                        ),
+                        "text": ensure_text_is_str(
+                            doc_spec.get("text", ""), "text"
+                        ),
                         "publish": doc_spec.get("publish", True),
                     }
 
                     if "parent_document_id" in doc_spec:
-                        try:
-                            parsed = ensure_uuid_string(
-                                doc_spec["parent_document_id"],
-                                "parent_document_id",
-                            )
-                        except ValueError as e:
-                            results.append(
-                                _create_result_entry(
-                                    "unknown",
-                                    "failed",
-                                    error=str(e),
-                                )
-                            )
-                            failed += 1
-                            continue
+                        parsed = ensure_uuid_string(
+                            doc_spec["parent_document_id"],
+                            "parent_document_id",
+                        )
                         if parsed:
                             data["parentDocumentId"] = parsed
 
@@ -707,6 +714,15 @@ def register_tools(mcp) -> None:
                         )
                         failed += 1
 
+                except (TypeError, ValueError) as e:
+                    results.append(
+                        _create_result_entry(
+                            "unknown",
+                            "failed",
+                            error=f"Validation error: {e}",
+                        )
+                    )
+                    failed += 1
                 except OutlineClientError as e:
                     results.append(
                         _create_result_entry("unknown", "failed", error=str(e))

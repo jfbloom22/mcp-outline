@@ -8,6 +8,10 @@ import pytest
 
 from mcp_outline.features.documents.common import OutlineClientError
 
+# Valid UUIDs for testing (Outline API requires UUID format)
+COLLECTION_ID = "580b8429-8da4-4409-a2ad-f86e194074b6"
+DOCUMENT_ID = "8610a622-afb5-4ebe-92d7-cdd58fb1aaa5"
+
 
 # Mock FastMCP for registering tools
 class MockMCP:
@@ -87,7 +91,7 @@ class TestDocumentContentTools:
         # Call the tool
         result = await register_content_tools.tools["create_document"](
             title="Test Document",
-            collection_id="col123",
+            collection_id=COLLECTION_ID,
             text="This is a test document.",
         )
 
@@ -97,7 +101,7 @@ class TestDocumentContentTools:
             {
                 "title": "Test Document",
                 "text": "This is a test document.",
-                "collectionId": "col123",
+                "collectionId": COLLECTION_ID,
                 "publish": True,
             },
         )
@@ -123,7 +127,7 @@ class TestDocumentContentTools:
         # Call the tool with parent document ID
         _ = await register_content_tools.tools["create_document"](
             title="Test Document",
-            collection_id="col123",
+            collection_id=COLLECTION_ID,
             text="This is a test document.",
             parent_document_id="580b8429-8da4-4409-a2ad-f86e194074b6",
         )
@@ -153,7 +157,7 @@ class TestDocumentContentTools:
 
         # Call the tool
         result = await register_content_tools.tools["create_document"](
-            title="Test Document", collection_id="col123"
+            title="Test Document", collection_id=COLLECTION_ID
         )
 
         # Verify result contains error message
@@ -174,7 +178,7 @@ class TestDocumentContentTools:
 
         # Call the tool
         result = await register_content_tools.tools["create_document"](
-            title="Test Document", collection_id="col123"
+            title="Test Document", collection_id=COLLECTION_ID
         )
 
         # Verify error is handled and returned
@@ -196,7 +200,7 @@ class TestDocumentContentTools:
 
         # Call the tool
         result = await register_content_tools.tools["update_document"](
-            document_id="doc123",
+            document_id=DOCUMENT_ID,
             title="Updated Document",
             text="This document has been updated.",
         )
@@ -205,7 +209,7 @@ class TestDocumentContentTools:
         mock_client.post.assert_called_once_with(
             "documents.update",
             {
-                "id": "doc123",
+                "id": DOCUMENT_ID,
                 "title": "Updated Document",
                 "text": "This document has been updated.",
                 "append": False,
@@ -215,6 +219,77 @@ class TestDocumentContentTools:
         # Verify result contains expected information
         assert "Document updated successfully" in result
         assert "Updated Document" in result
+
+    @pytest.mark.asyncio
+    @patch(
+        "mcp_outline.features.documents.document_content.get_outline_client"
+    )
+    async def test_update_document_passes_content_unchanged(
+        self, mock_get_client, register_content_tools
+    ):
+        """Regression: time strings in content pass through unchanged.
+
+        Bug report: content like (12:30 - 1:15 PM) was corrupted when sent
+        via MCP. This verifies our server passes it through correctly.
+        """
+        corruption_prone_content = """# Clean Agenda: People Team AI Academy
+
+**Date:** March 26, 2026
+**Time:** 10:00 AM
+
+## Morning Session
+
+### (12:30 - 1:15 PM) Welcome
+*   **Note:** Please arrive early.
+
+### (1:15 - 1:30 PM) AI Academy Overview
+
+### (1:30 - 2:00 PM) External Perspective:
+
+### (3:20 - 3:45 PM) Creative Application Challenge
+
+### (3:45 - 4:00 PM) Skill Takeaway
+"""
+        mock_client = AsyncMock()
+        mock_client.post.return_value = SAMPLE_UPDATE_DOCUMENT_RESPONSE
+        mock_get_client.return_value = mock_client
+
+        result = await register_content_tools.tools["update_document"](
+            document_id=DOCUMENT_ID,
+            text=corruption_prone_content,
+        )
+
+        call_args = mock_client.post.call_args[0]
+        assert call_args[0] == "documents.update"
+        sent_text = call_args[1]["text"]
+        assert "(12:30 - 1:15 PM)" in sent_text
+        assert "(1:15 - 1:30 PM) AI Academy Overview" in sent_text
+        assert "(1:30 - 2:00 PM) External Perspective:" in sent_text
+        assert "(3:20 - 3:45 PM) Creative Application Challenge" in sent_text
+        assert "(3:45 - 4:00 PM) Skill Takeaway" in sent_text
+        assert "*   **Note:**" in sent_text
+        assert "Document updated successfully" in result
+
+    @pytest.mark.asyncio
+    @patch(
+        "mcp_outline.features.documents.document_content.get_outline_client"
+    )
+    async def test_update_document_rejects_non_string_text(
+        self, mock_get_client, register_content_tools
+    ):
+        """Reject non-string text to prevent type coercion corruption."""
+        mock_client = AsyncMock()
+        mock_get_client.return_value = mock_client
+
+        result = await register_content_tools.tools["update_document"](
+            document_id=DOCUMENT_ID,
+            text=12345,  # type: ignore[arg-type]
+        )
+
+        assert "Validation error" in result
+        assert "must be a string" in result
+        assert "int" in result
+        mock_client.post.assert_not_called()
 
     @pytest.mark.asyncio
     @patch(
@@ -231,7 +306,7 @@ class TestDocumentContentTools:
 
         # Call the tool with append flag
         _ = await register_content_tools.tools["update_document"](
-            document_id="doc123", text="Additional text.", append=True
+            document_id=DOCUMENT_ID, text="Additional text.", append=True
         )
 
         # Verify append flag was included in the call
@@ -257,13 +332,13 @@ class TestDocumentContentTools:
 
         # Call the tool
         result = await register_content_tools.tools["add_comment"](
-            document_id="doc123", text="This is a comment"
+            document_id=DOCUMENT_ID, text="This is a comment"
         )
 
         # Verify client was called correctly
         mock_client.post.assert_called_once_with(
             "comments.create",
-            {"documentId": "doc123", "text": "This is a comment"},
+            {"documentId": DOCUMENT_ID, "text": "This is a comment"},
         )
 
         # Verify result contains expected information
@@ -285,7 +360,7 @@ class TestDocumentContentTools:
 
         # Call the tool
         result = await register_content_tools.tools["add_comment"](
-            document_id="doc123", text="This is a comment"
+            document_id=DOCUMENT_ID, text="This is a comment"
         )
 
         # Verify result contains error message
@@ -306,7 +381,7 @@ class TestDocumentContentTools:
 
         # Call the tool
         result = await register_content_tools.tools["add_comment"](
-            document_id="doc123", text="This is a comment"
+            document_id=DOCUMENT_ID, text="This is a comment"
         )
 
         # Verify error is handled and returned

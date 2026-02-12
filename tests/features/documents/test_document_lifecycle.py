@@ -491,4 +491,3 @@ class TestListTrash:
 
         assert "Error listing trash" in result
         assert "API error" in result
-

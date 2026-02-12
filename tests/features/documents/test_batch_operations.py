@@ -8,6 +8,12 @@ import pytest
 
 from mcp_outline.features.documents.common import OutlineClientError
 
+# Valid UUIDs for testing (Outline API requires UUID format)
+COLLECTION_ID = "580b8429-8da4-4409-a2ad-f86e194074b6"
+DOC_ID_1 = "8610a622-afb5-4ebe-92d7-cdd58fb1aaa5"
+DOC_ID_2 = "8610a622-afb5-4ebe-92d7-cdd58fb1aaa6"
+DOC_ID_3 = "8610a622-afb5-4ebe-92d7-cdd58fb1aaa7"
+
 
 # Mock FastMCP for registering tools
 class MockMCP:
@@ -413,9 +419,9 @@ class TestBatchUpdateDocuments:
         mock_get_client.return_value = mock_client
 
         updates = [
-            {"id": "doc1", "title": "New Title 1"},
-            {"id": "doc2", "text": "New content"},
-            {"id": "doc3", "title": "Title 3", "text": "Content 3"},
+            {"id": DOC_ID_1, "title": "New Title 1"},
+            {"id": DOC_ID_2, "text": "New content"},
+            {"id": DOC_ID_3, "title": "Title 3", "text": "Content 3"},
         ]
 
         result = await register_batch_tools.tools["batch_update_documents"](
@@ -441,7 +447,9 @@ class TestBatchUpdateDocuments:
         }
         mock_get_client.return_value = mock_client
 
-        updates = [{"id": "doc1", "text": "Appended content", "append": True}]
+        updates = [
+            {"id": DOC_ID_1, "text": "Appended content", "append": True}
+        ]
 
         result = await register_batch_tools.tools["batch_update_documents"](
             updates
@@ -469,7 +477,7 @@ class TestBatchUpdateDocuments:
         )
 
         assert "Failed: 1" in result
-        assert "Missing document ID" in result
+        assert "Missing document ID" in result or "Validation error" in result
 
     @pytest.mark.asyncio
     @patch(
@@ -487,8 +495,8 @@ class TestBatchUpdateDocuments:
         mock_get_client.return_value = mock_client
 
         updates = [
-            {"id": "doc1", "title": "Title 1"},
-            {"id": "doc2", "title": "Title 2"},
+            {"id": DOC_ID_1, "title": "Title 1"},
+            {"id": DOC_ID_2, "title": "Title 2"},
         ]
 
         result = await register_batch_tools.tools["batch_update_documents"](
@@ -533,11 +541,15 @@ class TestBatchCreateDocuments:
         mock_get_client.return_value = mock_client
 
         documents = [
-            {"title": "Doc 1", "collection_id": "col1"},
-            {"title": "Doc 2", "collection_id": "col1", "text": "Content"},
+            {"title": "Doc 1", "collection_id": COLLECTION_ID},
+            {
+                "title": "Doc 2",
+                "collection_id": COLLECTION_ID,
+                "text": "Content",
+            },
             {
                 "title": "Doc 3",
-                "collection_id": "col1",
+                "collection_id": COLLECTION_ID,
                 "publish": False,
             },
         ]
@@ -565,7 +577,7 @@ class TestBatchCreateDocuments:
         mock_client = AsyncMock()
         mock_get_client.return_value = mock_client
 
-        documents = [{"collection_id": "col1"}]
+        documents = [{"collection_id": COLLECTION_ID}]
 
         result = await register_batch_tools.tools["batch_create_documents"](
             documents
@@ -612,7 +624,7 @@ class TestBatchCreateDocuments:
         documents = [
             {
                 "title": "Child",
-                "collection_id": "col1",
+                "collection_id": COLLECTION_ID,
                 "parent_document_id": parent_id,
             }
         ]
@@ -642,9 +654,9 @@ class TestBatchCreateDocuments:
         mock_get_client.return_value = mock_client
 
         documents = [
-            {"title": "Doc 1", "collection_id": "col1"},
-            {"title": "Doc 2", "collection_id": "col1"},
-            {"title": "Doc 3", "collection_id": "col1"},
+            {"title": "Doc 1", "collection_id": COLLECTION_ID},
+            {"title": "Doc 2", "collection_id": COLLECTION_ID},
+            {"title": "Doc 3", "collection_id": COLLECTION_ID},
         ]
 
         result = await register_batch_tools.tools["batch_create_documents"](

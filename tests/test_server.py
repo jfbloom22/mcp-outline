@@ -50,4 +50,3 @@ async def test_ai_tools_enabled_by_default(fresh_mcp_server):
         tool_names = [tool.name for tool in tools]
 
         assert "ask_ai_about_documents" in tool_names
-

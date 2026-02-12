@@ -4,15 +4,17 @@ Document content management for the MCP Outline server.
 This module provides MCP tools for creating and updating document content.
 """
 
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
 
 from mcp_outline.features.documents.common import (
     OutlineClientError,
+    ensure_text_is_str,
     ensure_uuid_string,
     get_outline_client,
+    require_uuid_string,
 )
 
 
@@ -68,19 +70,18 @@ def register_tools(mcp) -> None:
             client = await get_outline_client(ctx=ctx)
 
             data = {
-                "title": title,
-                "text": text,
-                "collectionId": collection_id,
+                "title": ensure_text_is_str(title, "title"),
+                "text": ensure_text_is_str(text, "text"),
+                "collectionId": require_uuid_string(
+                    collection_id, "collection_id"
+                ),
                 "publish": publish,
             }
 
             if parent_document_id:
-                try:
-                    parsed = ensure_uuid_string(
-                        parent_document_id, "parent_document_id"
-                    )
-                except ValueError as e:
-                    return f"Error: {e}"
+                parsed = ensure_uuid_string(
+                    parent_document_id, "parent_document_id"
+                )
                 if parsed:
                     data["parentDocumentId"] = parsed
 
@@ -94,6 +95,8 @@ def register_tools(mcp) -> None:
             doc_title = document.get("title", "Untitled")
 
             return f"Document created successfully: {doc_title} (ID: {doc_id})"
+        except (TypeError, ValueError) as e:
+            return f"Validation error: {e}"
         except OutlineClientError as e:
             return f"Error creating document: {str(e)}"
         except Exception as e:
@@ -144,14 +147,12 @@ def register_tools(mcp) -> None:
         try:
             client = await get_outline_client(ctx=ctx)
 
-            # Only include fields that are being updated
-            data: Dict[str, Any] = {"id": document_id}
+            data = {"id": require_uuid_string(document_id, "document_id")}
 
             if title is not None:
-                data["title"] = title
-
+                data["title"] = ensure_text_is_str(title, "title")
             if text is not None:
-                data["text"] = text
+                data["text"] = ensure_text_is_str(text, "text")
                 data["append"] = append
 
             response = await client.post("documents.update", data)
@@ -163,6 +164,8 @@ def register_tools(mcp) -> None:
             doc_title = document.get("title", "Untitled")
 
             return f"Document updated successfully: {doc_title}"
+        except (TypeError, ValueError) as e:
+            return f"Validation error: {e}"
         except OutlineClientError as e:
             return f"Error updating document: {str(e)}"
         except Exception as e:
@@ -201,10 +204,17 @@ def register_tools(mcp) -> None:
         try:
             client = await get_outline_client(ctx=ctx)
 
-            data = {"documentId": document_id, "text": text}
+            data = {
+                "documentId": require_uuid_string(document_id, "document_id"),
+                "text": ensure_text_is_str(text, "text"),
+            }
 
             if parent_comment_id:
-                data["parentCommentId"] = parent_comment_id
+                parsed = ensure_uuid_string(
+                    parent_comment_id, "parent_comment_id"
+                )
+                if parsed:
+                    data["parentCommentId"] = parsed
 
             response = await client.post("comments.create", data)
             comment = response.get("data", {})
@@ -218,6 +228,8 @@ def register_tools(mcp) -> None:
                 return f"Reply added successfully (ID: {comment_id})"
             else:
                 return f"Comment added successfully (ID: {comment_id})"
+        except (TypeError, ValueError) as e:
+            return f"Validation error: {e}"
         except OutlineClientError as e:
             return f"Error adding comment: {str(e)}"
         except Exception as e:

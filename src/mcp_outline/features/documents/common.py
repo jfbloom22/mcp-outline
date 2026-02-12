@@ -18,6 +18,43 @@ class OutlineClientError(Exception):
     pass
 
 
+def ensure_text_is_str(value: Any, param_name: str = "text") -> str:
+    """Ensure text parameter is a proper string when provided.
+
+    Rejects non-string values (e.g. numbers, truncated/corrupted) that could
+    cause content corruption. Only call when text is being updated.
+
+    Args:
+        value: Raw value from tool arguments.
+        param_name: Name for error messages.
+
+    Returns:
+        The text as a string.
+
+    Raises:
+        TypeError: If value is not a string.
+    """
+    if not isinstance(value, str):
+        raise TypeError(
+            f"{param_name} must be a string, got {type(value).__name__}"
+        )
+    return value
+
+
+def require_uuid_string(value: Any, param_name: str) -> str:
+    """Validate a required UUID parameter. Raises for None, empty, or invalid.
+
+    Use for document_id, collection_id, etc. when the param is required.
+
+    Raises:
+        ValueError: If value is missing or not a valid UUID.
+    """
+    result = ensure_uuid_string(value, param_name)
+    if result is None:
+        raise ValueError(f"{param_name} is required")
+    return result
+
+
 def ensure_uuid_string(value: Any, param_name: str) -> Optional[str]:
     """
     Normalize and validate a UUID parameter for Outline API.
