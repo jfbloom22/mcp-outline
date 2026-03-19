@@ -4,7 +4,7 @@ Collection management tools for the MCP Outline server.
 This module provides MCP tools for managing collections.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
@@ -15,7 +15,7 @@ from mcp_outline.features.documents.common import (
 )
 
 
-def _format_file_operation(file_operation: Optional[Dict[str, Any]]) -> str:
+def _format_file_operation(file_operation: dict[str, Any] | None) -> str:
     """Format file operation data into readable text."""
     if not file_operation:
         return "No file operation data available."
@@ -68,7 +68,7 @@ def register_tools(mcp) -> None:
     async def export_collection(
         collection_id: str,
         format: str = "outline-markdown",
-        ctx: Optional[Context] = None,
+        ctx: Context | None = None,
     ) -> str:
         """
         Exports all documents in a collection to a downloadable file.
@@ -117,7 +117,7 @@ def register_tools(mcp) -> None:
         )
     )
     async def export_all_collections(
-        format: str = "outline-markdown", ctx: Optional[Context] = None
+        format: str = "outline-markdown", ctx: Context | None = None
     ) -> str:
         """
         Exports the entire workspace content to a downloadable file.
@@ -166,8 +166,8 @@ def register_tools(mcp) -> None:
     async def create_collection(
         name: str,
         description: str = "",
-        color: Optional[str] = None,
-        ctx: Optional[Context] = None,
+        color: str | None = None,
+        ctx: Context | None = None,
     ) -> str:
         """
         Creates a new collection for organizing documents.
@@ -218,10 +218,10 @@ def register_tools(mcp) -> None:
     )
     async def update_collection(
         collection_id: str,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
-        color: Optional[str] = None,
-        ctx: Optional[Context] = None,
+        name: str | None = None,
+        description: str | None = None,
+        color: str | None = None,
+        ctx: Context | None = None,
     ) -> str:
         """
         Modifies an existing collection's properties.
@@ -272,7 +272,7 @@ def register_tools(mcp) -> None:
         )
     )
     async def delete_collection(
-        collection_id: str, ctx: Optional[Context] = None
+        collection_id: str, ctx: Context | None = None
     ) -> str:
         """
         Permanently removes a collection and all its documents.

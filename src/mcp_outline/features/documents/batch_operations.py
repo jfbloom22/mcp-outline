@@ -5,7 +5,7 @@ This module provides MCP tools for performing operations on multiple
 documents efficiently.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
@@ -22,9 +22,9 @@ from mcp_outline.features.documents.common import (
 def _create_result_entry(
     doc_id: str,
     status: str,
-    title: Optional[str] = None,
-    error: Optional[str] = None,
-) -> Dict[str, Any]:
+    title: str | None = None,
+    error: str | None = None,
+) -> dict[str, Any]:
     """
     Create a standardized result entry for batch operations.
 
@@ -37,7 +37,7 @@ def _create_result_entry(
     Returns:
         Dictionary containing result information
     """
-    result: Dict[str, Any] = {"id": doc_id, "status": status}
+    result: dict[str, Any] = {"id": doc_id, "status": status}
 
     if title:
         result["title"] = title
@@ -53,7 +53,7 @@ def _format_batch_results(
     total: int,
     succeeded: int,
     failed: int,
-    results: List[Dict[str, Any]],
+    results: list[dict[str, Any]],
 ) -> str:
     """
     Format batch operation results into a user-friendly string.
@@ -130,7 +130,7 @@ def register_tools(mcp) -> None:
         )
     )
     async def batch_archive_documents(
-        document_ids: List[str], ctx: Optional[Context] = None
+        document_ids: list[str], ctx: Context | None = None
     ) -> str:
         """
         Archives multiple documents in a single batch operation.
@@ -159,7 +159,7 @@ def register_tools(mcp) -> None:
         if not document_ids:
             return "Error: No document IDs provided."
 
-        results: List[Dict[str, Any]] = []
+        results: list[dict[str, Any]] = []
         succeeded = 0
         failed = 0
 
@@ -221,10 +221,10 @@ def register_tools(mcp) -> None:
         )
     )
     async def batch_move_documents(
-        document_ids: List[str],
-        collection_id: Optional[str] = None,
-        parent_document_id: Optional[str] = None,
-        ctx: Optional[Context] = None,
+        document_ids: list[str],
+        collection_id: str | None = None,
+        parent_document_id: str | None = None,
+        ctx: Context | None = None,
     ) -> str:
         """
         Moves multiple documents to a different collection or parent.
@@ -264,7 +264,7 @@ def register_tools(mcp) -> None:
             )
 
         # Validate parent_document_id is a proper UUID before processing
-        parsed_parent_id: Optional[str] = None
+        parsed_parent_id: str | None = None
         if parent_document_id:
             try:
                 parsed_parent_id = ensure_uuid_string(
@@ -273,7 +273,7 @@ def register_tools(mcp) -> None:
             except ValueError as e:
                 return f"Error: {e}"
 
-        results: List[Dict[str, Any]] = []
+        results: list[dict[str, Any]] = []
         succeeded = 0
         failed = 0
 
@@ -346,9 +346,9 @@ def register_tools(mcp) -> None:
         )
     )
     async def batch_delete_documents(
-        document_ids: List[str],
+        document_ids: list[str],
         permanent: bool = False,
-        ctx: Optional[Context] = None,
+        ctx: Context | None = None,
     ) -> str:
         """
         Deletes multiple documents, moving them to trash or permanently.
@@ -377,7 +377,7 @@ def register_tools(mcp) -> None:
         if not document_ids:
             return "Error: No document IDs provided."
 
-        results: List[Dict[str, Any]] = []
+        results: list[dict[str, Any]] = []
         succeeded = 0
         failed = 0
 
@@ -468,7 +468,7 @@ def register_tools(mcp) -> None:
         )
     )
     async def batch_update_documents(
-        updates: List[Dict[str, Any]], ctx: Optional[Context] = None
+        updates: list[dict[str, Any]], ctx: Context | None = None
     ) -> str:
         """
         Updates multiple documents with different changes.
@@ -480,7 +480,8 @@ def register_tools(mcp) -> None:
         - id (required): Document ID to update
         - title (optional): New title
         - text (optional): New content
-        - append (optional): If True, appends text instead of replacing
+        - append (optional): If True, appends text instead of replacing.
+            This is the reliable way to perform additive updates.
 
         Use this tool when you need to:
         - Update multiple documents with different changes
@@ -502,7 +503,7 @@ def register_tools(mcp) -> None:
         if not updates:
             return "Error: No updates provided."
 
-        results: List[Dict[str, Any]] = []
+        results: list[dict[str, Any]] = []
         succeeded = 0
         failed = 0
 
@@ -524,7 +525,7 @@ def register_tools(mcp) -> None:
                     continue
 
                 try:
-                    data = {"id": require_uuid_string(doc_id, "document_id")}
+                    data: dict[str, Any] = {"id": require_uuid_string(doc_id, "document_id")}
 
                     if "title" in update_spec:
                         data["title"] = ensure_text_is_str(
@@ -599,7 +600,7 @@ def register_tools(mcp) -> None:
         )
     )
     async def batch_create_documents(
-        documents: List[Dict[str, Any]], ctx: Optional[Context] = None
+        documents: list[dict[str, Any]], ctx: Context | None = None
     ) -> str:
         """
         Creates multiple documents in a single batch operation.
@@ -637,10 +638,10 @@ def register_tools(mcp) -> None:
         if not documents:
             return "Error: No documents provided."
 
-        results: List[Dict[str, Any]] = []
+        results: list[dict[str, Any]] = []
         succeeded = 0
         failed = 0
-        created_ids: List[str] = []
+        created_ids: list[str] = []
 
         try:
             client = await get_outline_client(ctx=ctx)

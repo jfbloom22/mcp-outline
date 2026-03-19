@@ -1,8 +1,9 @@
 """Common utilities shared by tools and resources."""
 
+import json
 import os
 import uuid
-from typing import Any, Optional
+from typing import Any
 
 from mcp.server.fastmcp import Context
 from starlette.requests import Request
@@ -16,6 +17,38 @@ class OutlineClientError(Exception):
     """Exception raised for errors in document outline client operations."""
 
     pass
+
+
+def format_documents_list(documents: list[dict[str, Any]], title: str) -> str:
+    """Format a list of documents into readable text."""
+    if not documents:
+        return f"No {title.lower()} found."
+
+    output = f"# {title}\n\n"
+
+    for i, document in enumerate(documents, 1):
+        doc_title = document.get("title", "Untitled")
+        doc_id = document.get("id", "")
+        doc_url_id = document.get("urlId", "")
+        updated_at = document.get("updatedAt", "")
+
+        output += f"## {i}. {doc_title}\n"
+        output += f"ID: {doc_id}\n"
+        if doc_url_id:
+            output += f"Short ID: {doc_url_id}\n"
+        if updated_at:
+            output += f"Last Updated: {updated_at}\n"
+        output += "\n"
+
+    return output
+
+
+def format_comment_data(data: dict[str, Any]) -> str:
+    """Serialize a comment data object to a display string."""
+    try:
+        return json.dumps(data, indent=2)
+    except Exception:
+        return str(data)
 
 
 def ensure_text_is_str(value: Any, param_name: str = "text") -> str:
@@ -55,7 +88,7 @@ def require_uuid_string(value: Any, param_name: str) -> str:
     return result
 
 
-def ensure_uuid_string(value: Any, param_name: str) -> Optional[str]:
+def ensure_uuid_string(value: Any, param_name: str) -> str | None:
     """
     Normalize and validate a UUID parameter for Outline API.
 
@@ -89,7 +122,7 @@ def ensure_uuid_string(value: Any, param_name: str) -> Optional[str]:
         )
 
 
-def _get_request_from_context(ctx: Optional[Context]) -> Optional[Request]:
+def _get_request_from_context(ctx: Context | None) -> Request | None:
     """Extract HTTP request object from FastMCP context when available."""
     if ctx is None:
         return None
@@ -105,7 +138,7 @@ def _get_request_from_context(ctx: Optional[Context]) -> Optional[Request]:
 
 
 async def get_outline_client(
-    ctx: Optional[Context] = None, request: Optional[Request] = None
+    ctx: Context | None = None, request: Request | None = None
 ) -> OutlineClient:
     """
     Get the document outline client (async).

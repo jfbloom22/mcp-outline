@@ -4,7 +4,7 @@ Document content management for the MCP Outline server.
 This module provides MCP tools for creating and updating document content.
 """
 
-from typing import Optional
+from typing import Any
 
 from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
@@ -37,9 +37,9 @@ def register_tools(mcp) -> None:
         title: str,
         collection_id: str,
         text: str = "",
-        parent_document_id: Optional[str] = None,
+        parent_document_id: str | None = None,
         publish: bool = True,
-        ctx: Optional[Context] = None,
+        ctx: Context | None = None,
     ) -> str:
         """
         Creates a new document in a specified collection.
@@ -111,24 +111,27 @@ def register_tools(mcp) -> None:
     )
     async def update_document(
         document_id: str,
-        title: Optional[str] = None,
-        text: Optional[str] = None,
+        title: str | None = None,
+        text: str | None = None,
         append: bool = False,
-        ctx: Optional[Context] = None,
+        ctx: Context | None = None,
     ) -> str:
         """
         Modifies an existing document's title or content.
 
-        IMPORTANT: This tool replaces the document content rather
-        than just adding to it.
-        To update a document with changed data, you need to first
-        read the document, add your changes to the content, and
-        then send the complete document with your changes.
+        By default, this tool replaces the document content rather
+        than just adding to it. If you want to replace only part
+        of a document, you should first read the document, modify
+        its content, and then send the complete text.
+
+        To safely add content to the end of a document without reading
+        it first, set 'append=True'. This preserves existing content
+        and comment anchors.
 
         Use this tool when you need to:
-        - Edit or update document content
+        - Edit or update document content (with append=False)
         - Change a document's title
-        - Append new content to an existing document
+        - Append new content to an existing document (with append=True)
         - Fix errors or add information to documents
 
         Note: For Mermaid diagrams, use ```mermaidjs (not ```mermaid)
@@ -139,7 +142,8 @@ def register_tools(mcp) -> None:
             title: New title (if None, keeps existing title)
             text: New content (if None, keeps existing content)
             append: If True, adds text to the end of document
-                instead of replacing
+                instead of replacing. This is the reliable way
+                to perform additive updates.
 
         Returns:
             Result message confirming update
@@ -147,7 +151,7 @@ def register_tools(mcp) -> None:
         try:
             client = await get_outline_client(ctx=ctx)
 
-            data = {"id": require_uuid_string(document_id, "document_id")}
+            data: dict[str, Any] = {"id": require_uuid_string(document_id, "document_id")}
 
             if title is not None:
                 data["title"] = ensure_text_is_str(title, "title")
@@ -181,8 +185,8 @@ def register_tools(mcp) -> None:
     async def add_comment(
         document_id: str,
         text: str,
-        parent_comment_id: Optional[str] = None,
-        ctx: Optional[Context] = None,
+        parent_comment_id: str | None = None,
+        ctx: Context | None = None,
     ) -> str:
         """
         Adds a comment to a document or replies to an existing comment.

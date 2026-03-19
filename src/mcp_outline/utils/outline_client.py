@@ -8,9 +8,11 @@ pooling and rate limiting.
 import asyncio
 import os
 from datetime import datetime
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import Any, ClassVar
 
 import httpx
+
+from mcp_outline.utils.strings import sanitize_value as _sanitize_value
 
 
 class OutlineError(Exception):
@@ -19,37 +21,15 @@ class OutlineError(Exception):
     pass
 
 
-def _sanitize_value(value: Optional[str]) -> Optional[str]:
-    """Strip whitespace and surrounding quotes from a value.
-
-    Args:
-        value: The raw string value to sanitize.
-
-    Returns:
-        The sanitized string, or None if input was None.
-    """
-    if value is None:
-        return None
-    sanitized = value.strip()
-    for quote in ('"', "'"):
-        if (
-            sanitized.startswith(quote)
-            and sanitized.endswith(quote)
-            and len(sanitized) >= 2
-        ):
-            return sanitized[1:-1]
-    return sanitized
-
-
 class OutlineClient:
     """Async client for Outline API services with connection pooling."""
 
     # Class-level connection pool shared across all instances
-    _client_pool: ClassVar[Optional[httpx.AsyncClient]] = None
+    _client_pool: ClassVar[httpx.AsyncClient | None] = None
     _rate_limit_lock: ClassVar[asyncio.Lock] = asyncio.Lock()
 
     def __init__(
-        self, api_key: Optional[str] = None, api_url: Optional[str] = None
+        self, api_key: str | None = None, api_url: str | None = None
     ):
         """
         Initialize the Outline client.
@@ -87,8 +67,8 @@ class OutlineClient:
             raise OutlineError("Missing API key. Set OUTLINE_API_KEY env var.")
 
         # Rate limit tracking
-        self._rate_limit_remaining: Optional[int] = None
-        self._rate_limit_reset: Optional[int] = None
+        self._rate_limit_remaining: int | None = None
+        self._rate_limit_reset: int | None = None
 
         # Initialize class-level connection pool if not exists
         if OutlineClient._client_pool is None:
@@ -179,8 +159,8 @@ class OutlineClient:
                 self._rate_limit_reset = None
 
     async def post(
-        self, endpoint: str, data: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+        self, endpoint: str, data: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """
         Make an async POST request to the Outline API.
 
@@ -214,7 +194,7 @@ class OutlineClient:
 
         max_retries = 3
         attempt = 0
-        last_exception: Optional[Exception] = None
+        last_exception: Exception | None = None
 
         while attempt < max_retries:
             try:
@@ -289,7 +269,7 @@ class OutlineClient:
 
         raise OutlineError("API request failed after retries")
 
-    async def auth_info(self) -> Dict[str, Any]:
+    async def auth_info(self) -> dict[str, Any]:
         """
         Verify authentication and get user information.
 
@@ -299,9 +279,12 @@ class OutlineClient:
         response = await self.post("auth.info")
         return response.get("data", {})
 
-    async def get_document(self, document_id: str) -> Dict[str, Any]:
+    async def get_document(self, document_id: str) -> dict[str, Any]:
         """
         Get a document by ID.
+
+        Note: The 'commentCount' field in the response is currently unreliable
+        (returns null even if comments exist). Use get_comment_count() instead.
 
         Args:
             document_id: The document ID.
@@ -312,13 +295,29 @@ class OutlineClient:
         response = await self.post("documents.info", {"id": document_id})
         return response.get("data", {})
 
+    async def get_comment_count(self, document_id: str) -> int:
+        """
+        Get the accurate count of comments for a document.
+
+        Workaround for 'commentCount' being null in documents.info.
+
+        Args:
+            document_id: The document ID.
+
+        Returns:
+            Total number of comments.
+        """
+        response = await self.post("comments.list", {"documentId": document_id, "limit": 1})
+        pagination = response.get("pagination", {})
+        return pagination.get("total", 0)
+
     async def search_documents(
         self,
         query: str,
-        collection_id: Optional[str] = None,
+        collection_id: str | None = None,
         limit: int = 25,
         offset: int = 0,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Search for documents using keywords.
 
@@ -331,7 +330,7 @@ class OutlineClient:
         Returns:
             Dict containing 'data' (list of results) and 'pagination' metadata
         """
-        data: Dict[str, Any] = {
+        data: dict[str, Any] = {
             "query": query,
             "limit": limit,
             "offset": offset,
@@ -342,7 +341,7 @@ class OutlineClient:
         response = await self.post("documents.search", data)
         return response
 
-    async def list_collections(self, limit: int = 20) -> List[Dict[str, Any]]:
+    async def list_collections(self, limit: int = 20) -> list[dict[str, Any]]:
         """
         List all available collections.
 
@@ -355,7 +354,7 @@ class OutlineClient:
         response = await self.post("collections.list", {"limit": limit})
         return response.get("data", [])
 
-    async def get_collection(self, collection_id: str) -> Dict[str, Any]:
+    async def get_collection(self, collection_id: str) -> dict[str, Any]:
         """
         Get a single collection by ID.
 
@@ -370,7 +369,7 @@ class OutlineClient:
 
     async def get_collection_documents(
         self, collection_id: str
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Get document structure for a collection.
 
@@ -386,8 +385,8 @@ class OutlineClient:
         return response.get("data", [])
 
     async def list_documents(
-        self, collection_id: Optional[str] = None, limit: int = 20
-    ) -> List[Dict[str, Any]]:
+        self, collection_id: str | None = None, limit: int = 20
+    ) -> list[dict[str, Any]]:
         """
         List documents with optional filtering.
 
@@ -398,14 +397,14 @@ class OutlineClient:
         Returns:
             List of documents
         """
-        data: Dict[str, Any] = {"limit": limit}
+        data: dict[str, Any] = {"limit": limit}
         if collection_id:
             data["collectionId"] = collection_id
 
         response = await self.post("documents.list", data)
         return response.get("data", [])
 
-    async def archive_document(self, document_id: str) -> Dict[str, Any]:
+    async def archive_document(self, document_id: str) -> dict[str, Any]:
         """
         Archive a document by ID.
 
@@ -418,7 +417,7 @@ class OutlineClient:
         response = await self.post("documents.archive", {"id": document_id})
         return response.get("data", {})
 
-    async def unarchive_document(self, document_id: str) -> Dict[str, Any]:
+    async def unarchive_document(self, document_id: str) -> dict[str, Any]:
         """
         Unarchive a document by ID.
 
@@ -431,7 +430,7 @@ class OutlineClient:
         response = await self.post("documents.unarchive", {"id": document_id})
         return response.get("data", {})
 
-    async def list_trash(self, limit: int = 25) -> List[Dict[str, Any]]:
+    async def list_trash(self, limit: int = 25) -> list[dict[str, Any]]:
         """
         List documents in the trash.
 
@@ -446,7 +445,7 @@ class OutlineClient:
         )
         return response.get("data", [])
 
-    async def restore_document(self, document_id: str) -> Dict[str, Any]:
+    async def restore_document(self, document_id: str) -> dict[str, Any]:
         """
         Restore a document from trash.
 
@@ -476,8 +475,8 @@ class OutlineClient:
 
     # Collection management methods
     async def create_collection(
-        self, name: str, description: str = "", color: Optional[str] = None
-    ) -> Dict[str, Any]:
+        self, name: str, description: str = "", color: str | None = None
+    ) -> dict[str, Any]:
         """
         Create a new collection.
 
@@ -489,7 +488,7 @@ class OutlineClient:
         Returns:
             The created collection data
         """
-        data: Dict[str, Any] = {"name": name, "description": description}
+        data: dict[str, Any] = {"name": name, "description": description}
 
         if color:
             data["color"] = color
@@ -500,10 +499,10 @@ class OutlineClient:
     async def update_collection(
         self,
         collection_id: str,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
-        color: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        name: str | None = None,
+        description: str | None = None,
+        color: str | None = None,
+    ) -> dict[str, Any]:
         """
         Update an existing collection.
 
@@ -516,7 +515,7 @@ class OutlineClient:
         Returns:
             The updated collection data
         """
-        data: Dict[str, Any] = {"id": collection_id}
+        data: dict[str, Any] = {"id": collection_id}
 
         if name is not None:
             data["name"] = name
@@ -545,7 +544,7 @@ class OutlineClient:
 
     async def export_collection(
         self, collection_id: str, format: str = "outline-markdown"
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Export a collection to a file.
 
@@ -563,7 +562,7 @@ class OutlineClient:
 
     async def export_all_collections(
         self, format: str = "outline-markdown"
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Export all collections to a file.
 
@@ -581,9 +580,9 @@ class OutlineClient:
     async def answer_question(
         self,
         query: str,
-        collection_id: Optional[str] = None,
-        document_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        collection_id: str | None = None,
+        document_id: str | None = None,
+    ) -> dict[str, Any]:
         """
         Ask a natural language question about document content.
 
@@ -595,7 +594,7 @@ class OutlineClient:
         Returns:
             Dictionary containing AI answer and search results
         """
-        data: Dict[str, Any] = {"query": query}
+        data: dict[str, Any] = {"query": query}
 
         if collection_id:
             data["collectionId"] = collection_id

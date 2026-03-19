@@ -5,13 +5,13 @@ This module provides MCP tools for archiving, trashing, and restoring
 documents.
 """
 
-from typing import Optional
 
 from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
 
 from mcp_outline.features.documents.common import (
     OutlineClientError,
+    format_documents_list as _format_documents_list,
     get_outline_client,
 )
 
@@ -30,7 +30,7 @@ def register_tools(mcp) -> None:
         )
     )
     async def archive_document(
-        document_id: str, ctx: Optional[Context] = None
+        document_id: str, ctx: Context | None = None
     ) -> str:
         """
         Archives a document to remove it from active use while preserving it.
@@ -72,7 +72,7 @@ def register_tools(mcp) -> None:
         )
     )
     async def unarchive_document(
-        document_id: str, ctx: Optional[Context] = None
+        document_id: str, ctx: Context | None = None
     ) -> str:
         """
         Restores a previously archived document to active status.
@@ -112,7 +112,7 @@ def register_tools(mcp) -> None:
     async def delete_document(
         document_id: str,
         permanent: bool = False,
-        ctx: Optional[Context] = None,
+        ctx: Context | None = None,
     ) -> str:
         """
         Moves a document to trash or permanently deletes it.
@@ -174,7 +174,7 @@ def register_tools(mcp) -> None:
         )
     )
     async def restore_document(
-        document_id: str, ctx: Optional[Context] = None
+        document_id: str, ctx: Context | None = None
     ) -> str:
         """
         Recovers a document from the trash back to active status.
@@ -212,7 +212,7 @@ def register_tools(mcp) -> None:
         )
     )
     async def list_archived_documents(
-        ctx: Optional[Context] = None,
+        ctx: Context | None = None,
     ) -> str:
         """
         Displays all documents that have been archived.
@@ -229,9 +229,6 @@ def register_tools(mcp) -> None:
         try:
             client = await get_outline_client(ctx=ctx)
             response = await client.post("documents.archived")
-            from mcp_outline.features.documents.document_search import (
-                _format_documents_list,
-            )
 
             documents = response.get("data", [])
             return _format_documents_list(documents, "Archived Documents")
@@ -245,7 +242,7 @@ def register_tools(mcp) -> None:
             readOnlyHint=True, destructiveHint=False, idempotentHint=True
         )
     )
-    async def list_trash(ctx: Optional[Context] = None) -> str:
+    async def list_trash(ctx: Context | None = None) -> str:
         """
         Displays all documents currently in the trash.
 
@@ -261,9 +258,6 @@ def register_tools(mcp) -> None:
         try:
             client = await get_outline_client(ctx=ctx)
             documents = await client.list_trash()
-            from mcp_outline.features.documents.document_search import (
-                _format_documents_list,
-            )
 
             return _format_documents_list(documents, "Documents in Trash")
         except OutlineClientError as e:

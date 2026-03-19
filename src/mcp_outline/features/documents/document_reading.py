@@ -4,7 +4,7 @@ Document reading tools for the MCP Outline server.
 This module provides MCP tools for reading document content.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
@@ -15,7 +15,7 @@ from mcp_outline.features.documents.common import (
 )
 
 
-def _format_document_content(document: Dict[str, Any]) -> str:
+def _format_document_content(document: dict[str, Any]) -> str:
     """Format document content into readable text."""
     title = document.get("title", "Untitled Document")
     text = document.get("text", "")
@@ -38,7 +38,7 @@ def register_tools(mcp) -> None:
         annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True)
     )
     async def read_document(
-        document_id: str, ctx: Optional[Context] = None
+        document_id: str, ctx: Context | None = None
     ) -> str:
         """
         Retrieves and displays the full content of a document.
@@ -68,7 +68,7 @@ def register_tools(mcp) -> None:
         annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True)
     )
     async def export_document(
-        document_id: str, ctx: Optional[Context] = None
+        document_id: str, ctx: Context | None = None
     ) -> str:
         """
         Exports a document as plain markdown text.

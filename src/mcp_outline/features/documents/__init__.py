@@ -1,6 +1,5 @@
 # Document management features for MCP Outline
 import os
-from typing import Optional
 
 from mcp_outline.features.documents import (
     ai_tools,
@@ -15,16 +14,12 @@ from mcp_outline.features.documents import (
 )
 
 
-def register(
-    mcp, api_key: Optional[str] = None, api_url: Optional[str] = None
-):
+def register(mcp):
     """
     Register document management features with the MCP server.
 
     Args:
         mcp: The FastMCP server instance
-        api_key: Optional API key for Outline
-        api_url: Optional API URL for Outline
     """
     # Always register all tools, relying on Outline's native API scopes
     document_search.register_tools(mcp)

@@ -4,20 +4,21 @@ Document search tools for the MCP Outline server.
 This module provides MCP tools for searching and listing documents.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
 
 from mcp_outline.features.documents.common import (
     OutlineClientError,
+    format_documents_list as _format_documents_list,
     get_outline_client,
 )
 
 
 def _format_search_results(
-    results: List[Dict[str, Any]],
-    pagination: Optional[Dict[str, Any]] = None,
+    results: list[dict[str, Any]],
+    pagination: dict[str, Any] | None = None,
 ) -> str:
     """Format search results into readable text with pagination info."""
     if not results:
@@ -65,31 +66,8 @@ def _format_search_results(
     return output
 
 
-def _format_documents_list(documents: List[Dict[str, Any]], title: str) -> str:
-    """Format a list of documents into readable text."""
-    if not documents:
-        return f"No {title.lower()} found."
 
-    output = f"# {title}\n\n"
-
-    for i, document in enumerate(documents, 1):
-        doc_title = document.get("title", "Untitled")
-        doc_id = document.get("id", "")
-        doc_url_id = document.get("urlId", "")
-        updated_at = document.get("updatedAt", "")
-
-        output += f"## {i}. {doc_title}\n"
-        output += f"ID: {doc_id}\n"
-        if doc_url_id:
-            output += f"Short ID: {doc_url_id}\n"
-        if updated_at:
-            output += f"Last Updated: {updated_at}\n"
-        output += "\n"
-
-    return output
-
-
-def _format_collections(collections: List[Dict[str, Any]]) -> str:
+def _format_collections(collections: list[dict[str, Any]]) -> str:
     """Format collections into readable text."""
     if not collections:
         return "No collections found."
@@ -113,7 +91,7 @@ def _format_collections(collections: List[Dict[str, Any]]) -> str:
     return output
 
 
-def _format_collection_documents(doc_nodes: List[Dict[str, Any]]) -> str:
+def _format_collection_documents(doc_nodes: list[dict[str, Any]]) -> str:
     """Format collection document structure into readable text."""
     if not doc_nodes:
         return "No documents found in this collection."
@@ -158,10 +136,10 @@ def register_tools(mcp) -> None:
     )
     async def search_documents(
         query: str,
-        collection_id: Optional[str] = None,
+        collection_id: str | None = None,
         limit: int = 25,
         offset: int = 0,
-        ctx: Optional[Context] = None,
+        ctx: Context | None = None,
     ) -> str:
         """
         Searches for documents using keywords or phrases across your knowledge
@@ -217,7 +195,7 @@ def register_tools(mcp) -> None:
     @mcp.tool(
         annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True)
     )
-    async def list_collections(ctx: Optional[Context] = None) -> str:
+    async def list_collections(ctx: Context | None = None) -> str:
         """
         Retrieves and displays all available collections in the workspace.
 
@@ -243,7 +221,7 @@ def register_tools(mcp) -> None:
         annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True)
     )
     async def get_collection_structure(
-        collection_id: str, ctx: Optional[Context] = None
+        collection_id: str, ctx: Context | None = None
     ) -> str:
         """
         Retrieves the hierarchical document structure of a collection.
@@ -274,8 +252,8 @@ def register_tools(mcp) -> None:
     )
     async def get_document_id_from_title(
         query: str,
-        collection_id: Optional[str] = None,
-        ctx: Optional[Context] = None,
+        collection_id: str | None = None,
+        ctx: Context | None = None,
     ) -> str:
         """
         Locates a document ID by searching for its title.

@@ -3,10 +3,12 @@
 import ipaddress
 import os
 from dataclasses import dataclass
-from typing import Mapping, Optional
+from typing import Mapping
 from urllib.parse import urlparse
 
 from starlette.requests import Request
+
+from mcp_outline.utils.strings import sanitize_value as _sanitize_value
 
 
 class RequestAuthError(Exception):
@@ -61,25 +63,11 @@ class RequestAuthContext:
     api_key: str
     api_url: str
     source: str
-    caller_id: Optional[str] = None
+    caller_id: str | None = None
 
 
 def _is_truthy(value: str) -> bool:
     return value.strip().lower() in ("1", "true", "yes")
-
-
-def _sanitize_value(value: Optional[str]) -> Optional[str]:
-    if value is None:
-        return None
-    sanitized = value.strip()
-    for quote in ('"', "'"):
-        if (
-            sanitized.startswith(quote)
-            and sanitized.endswith(quote)
-            and len(sanitized) >= 2
-        ):
-            return sanitized[1:-1]
-    return sanitized
 
 
 def _normalize_outline_api_url(raw_url: str) -> str:
@@ -92,7 +80,7 @@ def _normalize_outline_api_url(raw_url: str) -> str:
     return candidate
 
 
-def _extract_bearer_token(headers: Mapping[str, str]) -> Optional[str]:
+def _extract_bearer_token(headers: Mapping[str, str]) -> str | None:
     auth_header = _sanitize_value(headers.get("authorization"))
     if not auth_header:
         return None

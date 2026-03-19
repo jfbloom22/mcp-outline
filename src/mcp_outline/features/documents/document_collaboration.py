@@ -5,19 +5,20 @@ This module provides MCP tools for document comments, sharing, and
 collaboration.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
 
 from mcp_outline.features.documents.common import (
     OutlineClientError,
+    format_comment_data,
     get_outline_client,
 )
 
 
 def _format_comments(
-    comments: List[Dict[str, Any]],
+    comments: list[dict[str, Any]],
     total_count: int = 0,
     limit: int = 25,
     offset: int = 0,
@@ -48,14 +49,7 @@ def _format_comments(
 
         # Extract data object containing the comment content
         data = comment.get("data", {})
-
-        # Convert data to JSON string for display
-        try:
-            import json
-
-            text = json.dumps(data, indent=2)
-        except Exception:
-            text = str(data)
+        text = format_comment_data(data)
 
         output += f"## {i}. Comment by {user}\n"
         output += f"ID: {comment_id}\n"
@@ -87,7 +81,7 @@ def register_tools(mcp) -> None:
         include_anchor_text: bool = False,
         limit: int = 25,
         offset: int = 0,
-        ctx: Optional[Context] = None,
+        ctx: Context | None = None,
     ) -> str:
         """
         Retrieves comments on a specific document with pagination support.
@@ -141,7 +135,7 @@ def register_tools(mcp) -> None:
     async def get_comment(
         comment_id: str,
         include_anchor_text: bool = False,
-        ctx: Optional[Context] = None,
+        ctx: Context | None = None,
     ) -> str:
         """
         Retrieves a specific comment by its ID.
@@ -177,14 +171,7 @@ def register_tools(mcp) -> None:
 
             # Extract data object containing the comment content
             data = comment.get("data", {})
-
-            # Convert data to JSON string for display
-            try:
-                import json
-
-                text = json.dumps(data, indent=2)
-            except Exception:
-                text = str(data)
+            text = format_comment_data(data)
 
             output = f"# Comment by {user}\n"
             if created_at:
@@ -206,7 +193,7 @@ def register_tools(mcp) -> None:
         annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True)
     )
     async def get_document_backlinks(
-        document_id: str, ctx: Optional[Context] = None
+        document_id: str, ctx: Context | None = None
     ) -> str:
         """
         Finds all documents that link to a specific document.

@@ -4,7 +4,7 @@ AI-powered tools for interacting with documents.
 This module provides MCP tools for AI-powered features in Outline.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
@@ -15,7 +15,7 @@ from mcp_outline.features.documents.common import (
 )
 
 
-def _format_ai_answer(response: Dict[str, Any]) -> str:
+def _format_ai_answer(response: dict[str, Any]) -> str:
     """Format AI answer into readable text."""
     # Check if the search field exists (indicates AI answer is available)
     if "search" not in response:
@@ -61,9 +61,9 @@ def register_tools(mcp) -> None:
     )
     async def ask_ai_about_documents(
         question: str,
-        collection_id: Optional[str] = None,
-        document_id: Optional[str] = None,
-        ctx: Optional[Context] = None,
+        collection_id: str | None = None,
+        document_id: str | None = None,
+        ctx: Context | None = None,
     ) -> str:
         """
         Queries document content using natural language questions.

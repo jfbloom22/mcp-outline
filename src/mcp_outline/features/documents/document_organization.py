@@ -4,7 +4,6 @@ Document organization for the MCP Outline server.
 This module provides MCP tools for organizing documents.
 """
 
-from typing import Optional
 
 from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
@@ -33,9 +32,9 @@ def register_tools(mcp) -> None:
     )
     async def move_document(
         document_id: str,
-        collection_id: Optional[str] = None,
-        parent_document_id: Optional[str] = None,
-        ctx: Optional[Context] = None,
+        collection_id: str | None = None,
+        parent_document_id: str | None = None,
+        ctx: Context | None = None,
     ) -> str:
         """
         Relocates a document to a different collection or parent document.
@@ -73,7 +72,7 @@ def register_tools(mcp) -> None:
 
             # Validate parent_document_id is a proper UUID (avoids truncation
             # or type coercion when clients pass numbers or invalid formats)
-            parsed_parent_id: Optional[str] = None
+            parsed_parent_id: str | None = None
             if parent_document_id:
                 try:
                     parsed_parent_id = ensure_uuid_string(
