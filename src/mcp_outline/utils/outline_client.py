@@ -439,6 +439,10 @@ class OutlineClient:
         )
         return response.get("data", [])
 
+    async def auth_info(self) -> Dict[str, Any]:
+        """Backward-compatible alias for get_auth_info."""
+        return await self.get_auth_info()
+
     async def get_auth_info(self) -> Dict[str, Any]:
         """Get auth info for the current API key.
 

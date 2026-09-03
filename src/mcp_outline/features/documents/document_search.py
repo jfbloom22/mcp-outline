@@ -75,10 +75,13 @@ def _format_documents_list(documents: List[Dict[str, Any]], title: str) -> str:
     for i, document in enumerate(documents, 1):
         doc_title = document.get("title", "Untitled")
         doc_id = document.get("id", "")
+        doc_url_id = document.get("urlId", "")
         updated_at = document.get("updatedAt", "")
 
         output += f"## {i}. {doc_title}\n"
         output += f"ID: {doc_id}\n"
+        if doc_url_id:
+            output += f"Short ID: {doc_url_id}\n"
         if updated_at:
             output += f"Last Updated: {updated_at}\n"
         output += "\n"
@@ -124,7 +127,10 @@ def _format_collection_documents(doc_nodes: List[Dict[str, Any]]) -> str:
 
         # Format this node
         indent = "  " * depth
-        text = f"{indent}- {title} (ID: {node_id})\n"
+        id_part = f"ID: {node_id}"
+        if node_url_id:
+            id_part += f", Short ID: {node_url_id}"
+        text = f"{indent}- {title} ({id_part})\n"
 
         # Recursively format children
         for child in children:
