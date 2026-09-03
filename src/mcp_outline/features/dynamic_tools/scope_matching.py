@@ -70,6 +70,9 @@ def is_endpoint_accessible(
         return True  # unparseable → fail-open
 
     namespace, method = parts
+    if namespace == "auth":
+        # auth.info validates the key itself; not gated by document scopes
+        return True
     method_scope = _get_method_scope(method)
 
     for scope in scopes:

@@ -233,10 +233,15 @@ class TestBlockedToolsForScopes:
         assert blocked_tools_for_scopes(None, self.tool_endpoint_map) == set()
 
     def test_empty_scopes_blocks_all(self):
-        """Empty scope list → every tool blocked."""
-        assert blocked_tools_for_scopes([], self.tool_endpoint_map) == set(
-            self.tool_endpoint_map.keys()
-        )
+        """Empty scope list → scoped tools blocked; auth.info stays available."""
+        blocked = blocked_tools_for_scopes([], self.tool_endpoint_map)
+        auth_tools = {
+            name
+            for name, endpoint in self.tool_endpoint_map.items()
+            if endpoint.startswith("auth.")
+        }
+        expected = set(self.tool_endpoint_map.keys()) - auth_tools
+        assert blocked == expected
 
     def test_read_scopes_block_write_tools(self):
         scopes = [

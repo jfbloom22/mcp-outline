@@ -13,7 +13,11 @@ def register_tools(mcp) -> None:
     """Register auth diagnostic tools."""
 
     @mcp.tool(
-        annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True)
+        annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True),
+        meta={
+            "endpoint": "auth.info",
+            "min_role": "viewer",
+        },
     )
     async def whoami_outline(ctx: Context) -> str:
         """Return Outline identity details for current credentials."""

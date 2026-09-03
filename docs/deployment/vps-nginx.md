@@ -43,3 +43,7 @@ Use URL `https://<your-domain>/outline` and passthrough headers:
   }
 }
 ```
+
+## Production git branch
+
+Workplace Labs production (`mcp.workplacelabs.io/outline`) deploys from the fork branch **`feat/multi-tenant`**, not `main`. The `main` branch on `jfbloom22/mcp-outline` may lag upstream; use `feat/multi-tenant` for Ansible (`mcp_outline_repo_version`) and VPS `git pull` in `/opt/docker-compose/mcp-outline/repo`.

@@ -242,6 +242,8 @@ uv run poe test-e2e           # E2E tests (requires Docker)
 
 See [Development Guide](docs/development.md) for self-hosted Outline setup, MCP Inspector, and more.
 
+**Workplace Labs production:** deploy from git branch `feat/multi-tenant` (not `main`). Details: [VPS deployment](docs/deployment/vps-nginx.md).
+
 ## Troubleshooting
 
 **Server not connecting?** Test your API key:
