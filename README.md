@@ -1,5 +1,14 @@
 # MCP Outline Server
 
+> ## 📢 Official Outline MCP Server Available
+>
+> Outline now ships an **official MCP server** — we recommend using it.
+> [Read the docs](https://docs.getoutline.com/s/guide/doc/mcp-6j9jtENNKL).
+
+---
+
+<!-- mcp-name: io.github.Vortiago/mcp-outline -->
+
 [![PyPI](https://img.shields.io/pypi/v/mcp-outline)](https://pypi.org/project/mcp-outline/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -27,88 +36,224 @@ Before using this MCP server, you need:
 
 > **Getting your API key**: Log into Outline → Click your profile → Settings → API Keys → "New API Key". Copy the generated token.
 
-## Installation
+## Quick Start
 
-### Using uv (Recommended)
+### One-Click Install
+
+Click a button to install with interactive API key prompt:
+
+[![Install in VS Code](https://img.shields.io/badge/Install_in-VS_Code-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white)](https://vscode.dev/redirect/mcp/install?name=mcp-outline&inputs=%5B%7B%22id%22%3A%22outline_api_key%22%2C%22type%22%3A%22promptString%22%2C%22description%22%3A%22Enter%20OUTLINE_API_KEY%22%2C%22password%22%3Atrue%7D%2C%7B%22id%22%3A%22outline_api_url%22%2C%22type%22%3A%22promptString%22%2C%22description%22%3A%22Outline%20API%20URL%20(optional%2C%20for%20self-hosted)%22%2C%22password%22%3Afalse%7D%5D&config=%7B%22command%22%3A%22uvx%22%2C%22args%22%3A%5B%22mcp-outline%22%5D%2C%22env%22%3A%7B%22OUTLINE_API_KEY%22%3A%22%24%7Binput%3Aoutline_api_key%7D%22%2C%22OUTLINE_API_URL%22%3A%22%24%7Binput%3Aoutline_api_url%7D%22%7D%7D)
+[![Install in VS Code Insiders](https://img.shields.io/badge/Install_in-VS_Code_Insiders-24bfa5?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=mcp-outline&inputs=%5B%7B%22id%22%3A%22outline_api_key%22%2C%22type%22%3A%22promptString%22%2C%22description%22%3A%22Enter%20OUTLINE_API_KEY%22%2C%22password%22%3Atrue%7D%2C%7B%22id%22%3A%22outline_api_url%22%2C%22type%22%3A%22promptString%22%2C%22description%22%3A%22Outline%20API%20URL%20(optional%2C%20for%20self-hosted)%22%2C%22password%22%3Afalse%7D%5D&config=%7B%22command%22%3A%22uvx%22%2C%22args%22%3A%5B%22mcp-outline%22%5D%2C%22env%22%3A%7B%22OUTLINE_API_KEY%22%3A%22%24%7Binput%3Aoutline_api_key%7D%22%2C%22OUTLINE_API_URL%22%3A%22%24%7Binput%3Aoutline_api_url%7D%22%7D%7D&quality=insiders)
+[![Install in Cursor](https://img.shields.io/badge/Install_in-Cursor-000000?style=flat-square&logoColor=white)](https://cursor.com/en/install-mcp?name=mcp-outline&config=eyJjb21tYW5kIjoidXZ4IiwiYXJncyI6WyJtY3Atb3V0bGluZSJdLCJlbnYiOnsiT1VUTElORV9BUElfS0VZIjoiJHtpbnB1dDpvdXRsaW5lX2FwaV9rZXl9IiwiT1VUTElORV9BUElfVVJMIjoiJHtpbnB1dDpvdXRsaW5lX2FwaV91cmx9In0sImlucHV0cyI6W3siaWQiOiJvdXRsaW5lX2FwaV9rZXkiLCJ0eXBlIjoicHJvbXB0U3RyaW5nIiwiZGVzY3JpcHRpb24iOiJFbnRlciBPVVRMSU5FX0FQSV9LRVkiLCJwYXNzd29yZCI6dHJ1ZX0seyJpZCI6Im91dGxpbmVfYXBpX3VybCIsInR5cGUiOiJwcm9tcHRTdHJpbmciLCJkZXNjcmlwdGlvbiI6Ik91dGxpbmUgQVBJIFVSTCAob3B0aW9uYWwsIGZvciBzZWxmLWhvc3RlZCkiLCJwYXNzd29yZCI6ZmFsc2V9XX0=)
+
+### Manual Install
+
+Install with uv (recommended), pip, or Docker:
 
 ```bash
-uvx mcp-outline
+uvx mcp-outline          # using uv
+pip install mcp-outline   # using pip
 ```
 
-### Using pip
-
 ```bash
-pip install mcp-outline
-```
-
-### Using Docker
-
-```bash
+# using Docker
 docker run -e OUTLINE_API_KEY=<your-key> ghcr.io/vortiago/mcp-outline:latest
 ```
 
-Or build from source:
-```bash
-docker buildx build -t mcp-outline .
-docker run -e OUTLINE_API_KEY=<your-key> mcp-outline
+Then add to your MCP client config (works with VS Code, Claude Desktop, Cursor, and others):
+
+```json
+{
+  "inputs": [
+    {
+      "id": "outline_api_key",
+      "type": "promptString",
+      "description": "Enter OUTLINE_API_KEY",
+      "password": true
+    },
+    {
+      "id": "outline_api_url",
+      "type": "promptString",
+      "description": "Outline API URL (optional, for self-hosted)",
+      "password": false
+    }
+  ],
+  "servers": {
+    "mcp-outline": {
+      "command": "uvx",
+      "args": ["mcp-outline"],
+      "env": {
+        "OUTLINE_API_KEY": "${input:outline_api_key}",
+        "OUTLINE_API_URL": "${input:outline_api_url}"
+      }
+    }
+  }
+}
 ```
+
+<details>
+<summary>Claude Code</summary>
+
+```bash
+claude mcp add mcp-outline uvx mcp-outline
+```
+
+Installing the repo as a plugin instead also bundles the
+`outline-explorer` agent (fast read-only wiki exploration) and the
+`outline` skill (Outline conventions: mermaidjs fences, document
+structure, editing workflows).
+</details>
+
+<details>
+<summary>Claude Desktop</summary>
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "mcp-outline": {
+      "command": "uvx",
+      "args": ["mcp-outline"],
+      "env": {
+        "OUTLINE_API_KEY": "<YOUR_API_KEY>",
+        "OUTLINE_API_URL": "<YOUR_OUTLINE_URL>"
+      }
+    }
+  }
+}
+```
+</details>
+
+Setup guides for more clients: [Docker (HTTP), Cline, Codex, Windsurf, and others](docs/client-setup.md)
 
 ## Configuration
 
 | Variable | Required | Default | Notes |
 |----------|----------|---------|-------|
-| `OUTLINE_API_KEY` | Yes | - | Get from Outline web UI: Settings → API Keys → Create New |
+| `OUTLINE_API_KEY` | Yes* | - | Required for tool calls to succeed. For SSE/HTTP, can alternatively be provided per-request via `x-outline-api-key` header ([details](docs/configuration.md#per-user-outline-api-keys)) |
 | `OUTLINE_API_URL` | No | `https://app.getoutline.com/api` | For self-hosted: `https://your-domain/api` |
+| `OUTLINE_VERIFY_SSL` | No | `true` | Set `false` for self-signed certificates |
+| `OUTLINE_READ_ONLY` | No | `false` | `true` = disable ALL write operations ([details](docs/configuration.md#read-only-mode)) |
+| `OUTLINE_DISABLE_DELETE` | No | `false` | `true` = disable only delete operations ([details](docs/configuration.md#disable-delete-operations)) |
 | `OUTLINE_DISABLE_AI_TOOLS` | No | `false` | `true` = disable AI tools (for Outline instances without OpenAI) |
+| `OUTLINE_DISABLE_RECENT_DOCUMENTS` | No | `false` | `true` = disable the `list_recently_updated_documents` tool |
+| `OUTLINE_DYNAMIC_TOOL_LIST` | No | `false` | `true` = enable per-user tool filtering by role/key scopes ([details](docs/configuration.md#dynamic-tool-list)) |
+| `OUTLINE_MAX_CONNECTIONS` | No | `100` | Max concurrent connections in pool |
+| `OUTLINE_MAX_KEEPALIVE` | No | `20` | Max idle connections in pool |
+| `OUTLINE_TIMEOUT` | No | `30.0` | Read timeout in seconds |
+| `OUTLINE_CONNECT_TIMEOUT` | No | `5.0` | Connection timeout in seconds |
+| `OUTLINE_WRITE_TIMEOUT` | No | `30.0` | Write timeout in seconds |
+| `OUTLINE_CACHE_TTL` | No | `30` | Document cache TTL in seconds. The short default absorbs same-task read bursts without stressing the Outline API; set `0` to disable caching (always-fresh reads) or higher (e.g. `300`) for more API savings. Staged edits work either way |
+| `OUTLINE_CACHE_MAX_SIZE` | No | `100` | Max cached documents |
 | `MCP_TRANSPORT` | No | `stdio` | Transport mode: `stdio` (local), `sse` or `streamable-http` (remote) |
 | `MCP_HOST` | No | `127.0.0.1` | Server host. Use `0.0.0.0` in Docker for external connections |
 | `MCP_PORT` | No | `3000` | HTTP server port (only for `sse` and `streamable-http` modes) |
-| `MCP_STREAMABLE_HTTP_PATH` | No | `/mcp` | HTTP path for streamable transport (e.g. `/outline`) |
-| `MCP_STATELESS_HTTP` | No | `false` | Set `true` for hosted multi-tenant isolation |
-| `OUTLINE_REQUIRE_PASSTHROUGH` | No | `false` | Set `true` to require header-based tenant credentials |
-| `OUTLINE_ALLOWED_API_URL_HOSTS` | No | - | Comma-separated allowlist for `X-Outline-Api-Url` hosts |
-| `OUTLINE_DEFAULT_API_URL` | No | `https://app.getoutline.com/api` | Default API URL when header URL is omitted |
 
 ## Access Control
 
-The server relies on Outline's native API key scopes and permissions. To restrict operations, use an API key with limited permissions in the Outline web UI.
+| Feature | Env Var | Effect |
+|---------|---------|--------|
+| Read-only mode | `OUTLINE_READ_ONLY=true` | Disables all write operations — only search, read, and export tools available |
+| Disable deletes | `OUTLINE_DISABLE_DELETE=true` | Disables only delete operations, all other writes allowed |
+| Disable recent-changes tool | `OUTLINE_DISABLE_RECENT_DOCUMENTS=true` | Disables only the `list_recently_updated_documents` tool |
+| Dynamic tool list | `OUTLINE_DYNAMIC_TOOL_LIST=true` | Filters tools per-user based on Outline role and API key scopes |
+| Per-user Outline API keys | `x-outline-api-key` header | Each user passes their own Outline API key in HTTP mode for multi-user setups |
 
-### AI tools missing?
+Read-only mode takes precedence over disable-delete. See [Configuration Guide](docs/configuration.md) for details.
 
-- Check if `OUTLINE_DISABLE_AI_TOOLS=true` is disabling AI features
-- Restart your MCP client after changing environment variables
+## Tools
 
-### API rate limiting errors?
+> **Note**: Tool availability depends on your [access control](#access-control) settings.
 
-The server automatically handles rate limiting with retry logic. If you see persistent rate limit errors:
-- Reduce concurrent operations
-- Check if multiple clients are using the same API key
-- Contact Outline support if limits are too restrictive for your use case
+### Search & Discovery
+- `search_documents(query, collection_id?, limit?, offset?, statusFilter?)` - Search documents by keywords with pagination. Defaults to published documents; pass `statusFilter` with `draft`, `archived`, and/or `published` to include other states
+- `list_recently_updated_documents(date_filter?, collection_id?, status_filter?, limit?, offset?)` - List documents by most recent change, newest first (e.g. "what changed this week"). `date_filter` windows by last change: `day`/`week`/`month`/`year` (default `week`). Defaults to published documents
+- `list_collections()` - List all collections
+- `get_collection_structure(collection_id)` - Get document hierarchy within a collection
+- `get_document_id_from_title(query, collection_id?)` - Find document ID by title search
 
-### Docker container issues?
+### Document Reading
+- `read_document(document_id, offset?, limit?)` - Get document content with optional line-range pagination
+- `export_document(document_id)` - Export document as markdown
 
-**Container won't start:**
-- Ensure `OUTLINE_API_KEY` is set: `docker run -e OUTLINE_API_KEY=your_key ...`
-- Check logs: `docker logs <container-id>`
+### Document Navigation
+- `get_document_toc(document_id)` - Get table of contents with heading structure and line numbers
+- `read_document_section(document_id, heading)` - Read a specific section by heading match (case-insensitive substring)
 
-**Can't connect from client:**
-- Use `0.0.0.0` for MCP_HOST: `-e MCP_HOST=0.0.0.0`
-- Verify port mapping: `-p 3000:3000`
-- Check transport mode: `-e MCP_TRANSPORT=streamable-http`
+### Document Management
+- `create_document(title, collection_id, text?, parent_document_id?, publish?)` - Create new document
+- `update_document(document_id, title?, text?, append?)` - Replace full document content (append mode available)
 
-### Need more help?
+### Document Editing
+- `edit_document(document_id, edits, save?)` - String-match editing with batched replacements; `save=False` stages changes locally, `save=True` on the final call pushes all changes
+- `move_document(document_id, collection_id?, parent_document_id?)` - Move document to different collection or parent
 
-- 📖 [MCP Documentation](https://modelcontextprotocol.io/)
-- 🐛 [Report an issue](https://github.com/Vortiago/mcp-outline/issues)
+### Document Lifecycle
+- `archive_document(document_id)` - Archive document
+- `unarchive_document(document_id)` - Restore document from archive
+- `delete_document(document_id, permanent?)` - Delete document (or move to trash)
+- `restore_document(document_id)` - Restore document from trash
+- `list_archived_documents()` - List all archived documents
+- `list_trash()` - List all documents in trash
+
+### Comments & Collaboration
+- `add_comment(document_id, text, parent_comment_id?)` - Add comment to document (supports threaded replies)
+- `list_document_comments(document_id, include_anchor_text?, limit?, offset?)` - View document comments with pagination
+- `get_comment(comment_id, include_anchor_text?)` - Get specific comment details
+- `get_document_backlinks(document_id)` - Find documents that link to this document
+
+### Collection Management
+- `create_collection(name, description?, color?)` - Create new collection
+- `update_collection(collection_id, name?, description?, color?)` - Update collection properties
+- `delete_collection(collection_id)` - Delete collection
+- `export_collection(collection_id, format?)` - Export collection (default: outline-markdown)
+- `export_all_collections(format?)` - Export all collections
+
+### Batch Operations
+- `batch_create_documents(documents)` - Create multiple documents at once
+- `batch_update_documents(updates)` - Update multiple documents at once
+- `batch_move_documents(document_ids, collection_id?, parent_document_id?)` - Move multiple documents
+- `batch_archive_documents(document_ids)` - Archive multiple documents
+- `batch_delete_documents(document_ids, permanent?)` - Delete multiple documents
+
+### AI-Powered
+- `ask_ai_about_documents(question, collection_id?, document_id?)` - Ask natural language questions about your documents
+
+## Resources
+
+- `outline://collection/{id}` - Collection metadata (name, description, color, document count)
+- `outline://collection/{id}/tree` - Hierarchical document tree structure
+- `outline://collection/{id}/documents` - Flat list of documents in collection
+- `outline://document/{id}` - Full document content (markdown)
+- `outline://document/{id}/backlinks` - Documents that link to this document
+
+## Development
+
+```bash
+git clone https://github.com/Vortiago/mcp-outline.git
+cd mcp-outline
+uv sync --group dev
+
+uv run poe test-unit          # unit tests
+uv run poe test-integration   # integration tests (starts MCP server via stdio)
+uv run poe test-e2e           # E2E tests (requires Docker)
+```
+
+See [Development Guide](docs/development.md) for self-hosted Outline setup, MCP Inspector, and more.
+
+## Troubleshooting
+
+**Server not connecting?** Test your API key:
+```bash
+curl -H "Authorization: Bearer YOUR_API_KEY" YOUR_OUTLINE_URL/api/auth.info
+```
+
+See [Troubleshooting Guide](docs/troubleshooting.md) for common issues with tools, rate limiting, and Docker.
 
 ## Contributing
 
 Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions.
-
-## Roadmap
-
-See [docs/roadmap.md](docs/roadmap.md) for the current roadmap and upcoming
-refactor milestones.
 
 ## License
 

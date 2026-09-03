@@ -8,28 +8,117 @@ pooling and rate limiting.
 import asyncio
 import os
 from datetime import datetime
-from typing import Any, ClassVar
+from typing import (
+    Any,
+    Callable,
+    ClassVar,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    TypeVar,
+)
 
 import httpx
-
-from mcp_outline.utils.strings import sanitize_value as _sanitize_value
 
 
 class OutlineError(Exception):
     """Exception for all Outline API errors."""
 
-    pass
+    def __init__(
+        self,
+        message: str,
+        status_code: Optional[int] = None,
+    ):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def _sanitize_value(value: Optional[str]) -> Optional[str]:
+    """Strip whitespace and surrounding quotes from a value.
+
+    Args:
+        value: The raw string value to sanitize.
+
+    Returns:
+        The sanitized string, or None if input was None.
+    """
+    if value is None:
+        return None
+    sanitized = value.strip()
+    for quote in ('"', "'"):
+        if (
+            sanitized.startswith(quote)
+            and sanitized.endswith(quote)
+            and len(sanitized) >= 2
+        ):
+            return sanitized[1:-1]
+    return sanitized
+
+
+T = TypeVar("T")
+
+
+def _parse_json(response: httpx.Response) -> Dict[str, Any]:
+    """Parse a standard JSON API response.
+
+    Raises:
+        httpx.HTTPStatusError: For 4xx/5xx responses.
+    """
+    response.raise_for_status()
+    return response.json()
+
+
+def _parse_redirect_location(response: httpx.Response) -> str:
+    """Return the Location header from an attachment redirect.
+
+    Treats 3xx as the success case. Other statuses surface via
+    ``raise_for_status``.
+
+    Raises:
+        httpx.HTTPStatusError: For 4xx/5xx responses.
+        OutlineError: When the redirect lacks a Location header, or
+            the status is unexpected.
+    """
+    if response.status_code in (301, 302, 307, 308):
+        location = response.headers.get("Location")
+        if not location:
+            raise OutlineError(
+                "No Location header in attachment redirect response"
+            )
+        return location
+    response.raise_for_status()
+    raise OutlineError(
+        f"Unexpected status {response.status_code} from "
+        "attachments.redirect (expected 302)"
+    )
+
+
+def _parse_attachment_content(
+    response: httpx.Response,
+) -> Tuple[bytes, str]:
+    """Return ``(content, content_type)`` from an attachment fetch.
+
+    Raises:
+        httpx.HTTPStatusError: For 4xx/5xx responses.
+    """
+    response.raise_for_status()
+    content_type = response.headers.get(
+        "content-type", "application/octet-stream"
+    )
+    return response.content, content_type
 
 
 class OutlineClient:
     """Async client for Outline API services with connection pooling."""
 
     # Class-level connection pool shared across all instances
-    _client_pool: ClassVar[httpx.AsyncClient | None] = None
+    _client_pool: ClassVar[Optional[httpx.AsyncClient]] = None
     _rate_limit_lock: ClassVar[asyncio.Lock] = asyncio.Lock()
 
     def __init__(
-        self, api_key: str | None = None, api_url: str | None = None
+        self, api_key: Optional[str] = None, api_url: Optional[str] = None
     ):
         """
         Initialize the Outline client.
@@ -64,11 +153,19 @@ class OutlineClient:
         # Ensure API key is provided.
         # sanitized_key will be None or empty string if invalid
         if not self.api_key:
-            raise OutlineError("Missing API key. Set OUTLINE_API_KEY env var.")
+            raise OutlineError(
+                "Missing API key. Set OUTLINE_API_KEY in "
+                ".mcp-outline.env (project) or "
+                "~/.config/mcp-outline/.env (user), "
+                "or pass per-request via "
+                "x-outline-api-key header. "
+                "Get your key from Outline "
+                "(Settings > API)."
+            )
 
         # Rate limit tracking
-        self._rate_limit_remaining: int | None = None
-        self._rate_limit_reset: int | None = None
+        self._rate_limit_remaining: Optional[int] = None
+        self._rate_limit_reset: Optional[int] = None
 
         # Initialize class-level connection pool if not exists
         if OutlineClient._client_pool is None:
@@ -79,6 +176,12 @@ class OutlineClient:
             connect_timeout = float(
                 os.getenv("OUTLINE_CONNECT_TIMEOUT", "5.0")
             )
+            write_timeout = float(os.getenv("OUTLINE_WRITE_TIMEOUT", "30.0"))
+
+            # Check if SSL verification should be disabled
+            # (for self-signed certs)
+            verify_ssl_str = os.getenv("OUTLINE_VERIFY_SSL", "true").lower()
+            verify_ssl = verify_ssl_str not in ("false", "0", "no")
 
             limits = httpx.Limits(
                 max_keepalive_connections=max_keepalive,
@@ -89,7 +192,7 @@ class OutlineClient:
             timeout_config = httpx.Timeout(
                 connect=connect_timeout,
                 read=timeout,
-                write=10.0,
+                write=write_timeout,
                 pool=5.0,
             )
 
@@ -97,6 +200,7 @@ class OutlineClient:
                 limits=limits,
                 timeout=timeout_config,
                 follow_redirects=True,
+                verify=verify_ssl,
             )
 
     async def __aenter__(self):
@@ -158,21 +262,34 @@ class OutlineClient:
             except (TypeError, ValueError):
                 self._rate_limit_reset = None
 
-    async def post(
-        self, endpoint: str, data: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
+    async def _request(
+        self,
+        endpoint: str,
+        *,
+        json: Optional[Dict[str, Any]] = None,
+        follow_redirects: bool = True,
+        parse: Callable[[httpx.Response], T],
+    ) -> T:
         """
-        Make an async POST request to the Outline API.
+        Make an async POST request with rate limiting and retry.
 
-        Implements proactive rate limiting by checking stored rate limit
-        headers before making requests, with automatic retry on 429.
+        Owns proactive rate-limit waiting, automatic retry on 429 with
+        backoff, and unified terminal error mapping. The ``parse``
+        callable decides what counts as success and reads the response
+        body, so callers differ only in request shape and parsing.
 
         Args:
             endpoint: The API endpoint to call.
-            data: The request payload.
+            json: The request payload (omitted from the body when None).
+            follow_redirects: Whether httpx follows 3xx responses. The
+                attachment-redirect caller sets this False to read the
+                Location header itself.
+            parse: Maps a successful response to the return value. May
+                call ``raise_for_status()`` to surface HTTP errors into
+                the retry and error-mapping machinery below.
 
         Returns:
-            The parsed JSON response.
+            Whatever ``parse`` returns.
 
         Raises:
             OutlineError: If the request fails.
@@ -194,20 +311,23 @@ class OutlineClient:
 
         max_retries = 3
         attempt = 0
-        last_exception: Exception | None = None
+        last_exception: Optional[Exception] = None
 
         while attempt < max_retries:
             try:
                 response = await self._client_pool.post(
-                    url, headers=headers, json=data or {}
+                    url,
+                    headers=headers,
+                    json=json,
+                    follow_redirects=follow_redirects,
                 )
 
                 # Update rate limit state from response headers
                 self._update_rate_limits(response)
 
-                # Raise exception for 4XX/5XX responses
-                response.raise_for_status()
-                return response.json()
+                # parse() determines success and reads the body; a 429
+                # (or other 4xx/5xx) surfaces as HTTPStatusError below.
+                return parse(response)
 
             except httpx.HTTPStatusError as e:
                 last_exception = e
@@ -255,7 +375,10 @@ class OutlineClient:
         ):
             status = last_exception.response.status_code
             text = last_exception.response.text
-            raise OutlineError(f"HTTP {status}: {text}") from last_exception
+            raise OutlineError(
+                f"HTTP {status}: {text}",
+                status_code=status,
+            ) from last_exception
 
         if isinstance(last_exception, httpx.TimeoutException):
             raise OutlineError(
@@ -269,22 +392,69 @@ class OutlineClient:
 
         raise OutlineError("API request failed after retries")
 
-    async def auth_info(self) -> dict[str, Any]:
+    async def post(
+        self, endpoint: str, data: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
-        Verify authentication and get user information.
+        Make an async POST request to the Outline API.
+
+        Implements proactive rate limiting by checking stored rate limit
+        headers before making requests, with automatic retry on 429.
+
+        Args:
+            endpoint: The API endpoint to call.
+            data: The request payload.
 
         Returns:
-            Dict containing user and team information.
+            The parsed JSON response.
+
+        Raises:
+            OutlineError: If the request fails.
+        """
+        return await self._request(endpoint, json=data, parse=_parse_json)
+
+    async def list_api_keys(
+        self,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """List API keys for the authenticated user.
+
+        Returns metadata including ``scope``, ``last4``,
+        ``name``, and ``id`` fields.
+
+        Args:
+            limit: Maximum number of keys to return.
+            offset: Pagination offset.
+
+        Returns:
+            List of API key metadata dicts.
+
+        Raises:
+            OutlineError: If the request fails.
+        """
+        response = await self.post(
+            "apiKeys.list",
+            {"limit": limit, "offset": offset},
+        )
+        return response.get("data", [])
+
+    async def get_auth_info(self) -> Dict[str, Any]:
+        """Get auth info for the current API key.
+
+        Returns:
+            Dict with ``user`` (including ``role``) and
+            ``team`` fields.
+
+        Raises:
+            OutlineError: If the request fails.
         """
         response = await self.post("auth.info")
         return response.get("data", {})
 
-    async def get_document(self, document_id: str) -> dict[str, Any]:
+    async def get_document(self, document_id: str) -> Dict[str, Any]:
         """
         Get a document by ID.
-
-        Note: The 'commentCount' field in the response is currently unreliable
-        (returns null even if comments exist). Use get_comment_count() instead.
 
         Args:
             document_id: The document ID.
@@ -295,66 +465,82 @@ class OutlineClient:
         response = await self.post("documents.info", {"id": document_id})
         return response.get("data", {})
 
-    async def get_comment_count(self, document_id: str) -> int:
-        """
-        Get the accurate count of comments for a document.
-
-        Workaround for 'commentCount' being null in documents.info.
-
-        Args:
-            document_id: The document ID.
-
-        Returns:
-            Total number of comments.
-        """
-        response = await self.post("comments.list", {"documentId": document_id, "limit": 1})
-        pagination = response.get("pagination", {})
-        return pagination.get("total", 0)
-
     async def search_documents(
         self,
-        query: str,
-        collection_id: str | None = None,
+        query: str = "",
+        collection_id: Optional[str] = None,
         limit: int = 25,
         offset: int = 0,
-    ) -> dict[str, Any]:
+        status_filter: Optional[
+            List[Literal["draft", "archived", "published"]]
+        ] = None,
+        sort: Optional[str] = None,
+        direction: Optional[str] = None,
+        date_filter: Optional[Literal["day", "week", "month", "year"]] = None,
+    ) -> Dict[str, Any]:
         """
         Search for documents using keywords.
 
+        An empty ``query`` turns this into a plain listing ordered by ``sort``
+        (the Outline ``documents.search`` endpoint allows an empty query),
+        which is how recency listings are built.
+
         Args:
-            query: Search terms
+            query: Search terms. Empty string lists without ranking.
             collection_id: Optional collection to search within
             limit: Maximum number of results to return (default: 25)
             offset: Number of results to skip for pagination (default: 0)
+            status_filter: Document statuses to include in results. Allowed
+                values are "draft", "archived", and "published". Defaults to
+                ["published"].
+            sort: Optional field to order by (e.g. "updatedAt", "createdAt",
+                "title").
+            direction: Optional sort direction ("ASC" or "DESC").
+            date_filter: Optional server-side window on last-modified time.
+                One of "day", "week", "month", or "year".
 
         Returns:
             Dict containing 'data' (list of results) and 'pagination' metadata
         """
-        data: dict[str, Any] = {
+        data: Dict[str, Any] = {
             "query": query,
             "limit": limit,
             "offset": offset,
+            "statusFilter": (
+                status_filter if status_filter is not None else ["published"]
+            ),
         }
         if collection_id:
             data["collectionId"] = collection_id
+        if sort:
+            data["sort"] = sort
+        if direction:
+            data["direction"] = direction
+        if date_filter:
+            data["dateFilter"] = date_filter
 
         response = await self.post("documents.search", data)
         return response
 
-    async def list_collections(self, limit: int = 20) -> list[dict[str, Any]]:
+    async def list_collections(
+        self, limit: int = 100, offset: int = 0
+    ) -> List[Dict[str, Any]]:
         """
         List all available collections.
 
         Args:
             limit: Maximum number of results to return
+            offset: Number of results to skip (pagination)
 
         Returns:
             List of collections
         """
-        response = await self.post("collections.list", {"limit": limit})
+        response = await self.post(
+            "collections.list", {"limit": limit, "offset": offset}
+        )
         return response.get("data", [])
 
-    async def get_collection(self, collection_id: str) -> dict[str, Any]:
+    async def get_collection(self, collection_id: str) -> Dict[str, Any]:
         """
         Get a single collection by ID.
 
@@ -369,7 +555,7 @@ class OutlineClient:
 
     async def get_collection_documents(
         self, collection_id: str
-    ) -> list[dict[str, Any]]:
+    ) -> List[Dict[str, Any]]:
         """
         Get document structure for a collection.
 
@@ -385,8 +571,8 @@ class OutlineClient:
         return response.get("data", [])
 
     async def list_documents(
-        self, collection_id: str | None = None, limit: int = 20
-    ) -> list[dict[str, Any]]:
+        self, collection_id: Optional[str] = None, limit: int = 20
+    ) -> List[Dict[str, Any]]:
         """
         List documents with optional filtering.
 
@@ -397,14 +583,14 @@ class OutlineClient:
         Returns:
             List of documents
         """
-        data: dict[str, Any] = {"limit": limit}
+        data: Dict[str, Any] = {"limit": limit}
         if collection_id:
             data["collectionId"] = collection_id
 
         response = await self.post("documents.list", data)
         return response.get("data", [])
 
-    async def archive_document(self, document_id: str) -> dict[str, Any]:
+    async def archive_document(self, document_id: str) -> Dict[str, Any]:
         """
         Archive a document by ID.
 
@@ -417,9 +603,12 @@ class OutlineClient:
         response = await self.post("documents.archive", {"id": document_id})
         return response.get("data", {})
 
-    async def unarchive_document(self, document_id: str) -> dict[str, Any]:
+    async def unarchive_document(self, document_id: str) -> Dict[str, Any]:
         """
         Unarchive a document by ID.
+
+        Uses the ``documents.restore`` endpoint, which handles
+        both archived and deleted documents.
 
         Args:
             document_id: The document ID to unarchive.
@@ -427,10 +616,10 @@ class OutlineClient:
         Returns:
             The unarchived document data.
         """
-        response = await self.post("documents.unarchive", {"id": document_id})
+        response = await self.post("documents.restore", {"id": document_id})
         return response.get("data", {})
 
-    async def list_trash(self, limit: int = 25) -> list[dict[str, Any]]:
+    async def list_trash(self, limit: int = 25) -> List[Dict[str, Any]]:
         """
         List documents in the trash.
 
@@ -440,12 +629,10 @@ class OutlineClient:
         Returns:
             List of documents in trash
         """
-        response = await self.post(
-            "documents.list", {"limit": limit, "deleted": True}
-        )
+        response = await self.post("documents.deleted", {"limit": limit})
         return response.get("data", [])
 
-    async def restore_document(self, document_id: str) -> dict[str, Any]:
+    async def restore_document(self, document_id: str) -> Dict[str, Any]:
         """
         Restore a document from trash.
 
@@ -475,8 +662,8 @@ class OutlineClient:
 
     # Collection management methods
     async def create_collection(
-        self, name: str, description: str = "", color: str | None = None
-    ) -> dict[str, Any]:
+        self, name: str, description: str = "", color: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
         Create a new collection.
 
@@ -488,7 +675,7 @@ class OutlineClient:
         Returns:
             The created collection data
         """
-        data: dict[str, Any] = {"name": name, "description": description}
+        data: Dict[str, Any] = {"name": name, "description": description}
 
         if color:
             data["color"] = color
@@ -499,10 +686,10 @@ class OutlineClient:
     async def update_collection(
         self,
         collection_id: str,
-        name: str | None = None,
-        description: str | None = None,
-        color: str | None = None,
-    ) -> dict[str, Any]:
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        color: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Update an existing collection.
 
@@ -515,7 +702,7 @@ class OutlineClient:
         Returns:
             The updated collection data
         """
-        data: dict[str, Any] = {"id": collection_id}
+        data: Dict[str, Any] = {"id": collection_id}
 
         if name is not None:
             data["name"] = name
@@ -544,7 +731,7 @@ class OutlineClient:
 
     async def export_collection(
         self, collection_id: str, format: str = "outline-markdown"
-    ) -> dict[str, Any]:
+    ) -> Dict[str, Any]:
         """
         Export a collection to a file.
 
@@ -562,7 +749,7 @@ class OutlineClient:
 
     async def export_all_collections(
         self, format: str = "outline-markdown"
-    ) -> dict[str, Any]:
+    ) -> Dict[str, Any]:
         """
         Export all collections to a file.
 
@@ -580,9 +767,9 @@ class OutlineClient:
     async def answer_question(
         self,
         query: str,
-        collection_id: str | None = None,
-        document_id: str | None = None,
-    ) -> dict[str, Any]:
+        collection_id: Optional[str] = None,
+        document_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Ask a natural language question about document content.
 
@@ -594,7 +781,7 @@ class OutlineClient:
         Returns:
             Dictionary containing AI answer and search results
         """
-        data: dict[str, Any] = {"query": query}
+        data: Dict[str, Any] = {"query": query}
 
         if collection_id:
             data["collectionId"] = collection_id
@@ -604,3 +791,51 @@ class OutlineClient:
 
         response = await self.post("documents.answerQuestion", data)
         return response
+
+    async def get_attachment_redirect_url(self, attachment_id: str) -> str:
+        """
+        Get the redirect URL for an attachment without following redirects.
+
+        Calls attachments.redirect and returns the Location header (signed
+        URL) so clients can fetch the file themselves.
+
+        Args:
+            attachment_id: The attachment UUID.
+
+        Returns:
+            The redirect URL (Location header value).
+
+        Raises:
+            OutlineError: If the request fails or no Location header.
+        """
+        return await self._request(
+            "attachments.redirect",
+            json={"id": attachment_id},
+            follow_redirects=False,
+            parse=_parse_redirect_location,
+        )
+
+    async def fetch_attachment_content(
+        self, attachment_id: str
+    ) -> Tuple[bytes, str]:
+        """
+        Fetch attachment binary content by following the redirect.
+
+        Calls attachments.redirect, follows redirect to the signed URL, and
+        returns the raw file content with its content type.
+
+        Args:
+            attachment_id: The attachment UUID.
+
+        Returns:
+            Tuple of (content bytes, content_type string).
+
+        Raises:
+            OutlineError: If the request fails.
+        """
+        return await self._request(
+            "attachments.redirect",
+            json={"id": attachment_id},
+            follow_redirects=True,
+            parse=_parse_attachment_content,
+        )

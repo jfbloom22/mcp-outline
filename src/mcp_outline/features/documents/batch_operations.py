@@ -5,26 +5,29 @@ This module provides MCP tools for performing operations on multiple
 documents efficiently.
 """
 
-from typing import Any
+from typing import Any, Awaitable, Callable, Dict, List, Optional, TypeVar
 
-from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
 
 from mcp_outline.features.documents.common import (
     OutlineClientError,
-    ensure_text_is_str,
-    ensure_uuid_string,
     get_outline_client,
-    require_uuid_string,
+    get_resolved_api_key,
 )
+from mcp_outline.features.documents.models import (
+    BatchCreateItem,
+    BatchUpdateItem,
+)
+from mcp_outline.utils.document_cache import get_document_cache
+from mcp_outline.utils.outline_client import OutlineClient
 
 
 def _create_result_entry(
     doc_id: str,
     status: str,
-    title: str | None = None,
-    error: str | None = None,
-) -> dict[str, Any]:
+    title: Optional[str] = None,
+    error: Optional[str] = None,
+) -> Dict[str, Any]:
     """
     Create a standardized result entry for batch operations.
 
@@ -37,7 +40,7 @@ def _create_result_entry(
     Returns:
         Dictionary containing result information
     """
-    result: dict[str, Any] = {"id": doc_id, "status": status}
+    result: Dict[str, Any] = {"id": doc_id, "status": status}
 
     if title:
         result["title"] = title
@@ -53,7 +56,7 @@ def _format_batch_results(
     total: int,
     succeeded: int,
     failed: int,
-    results: list[dict[str, Any]],
+    results: List[Dict[str, Any]],
 ) -> str:
     """
     Format batch operation results into a user-friendly string.
@@ -114,6 +117,70 @@ def _format_batch_results(
     return "\n".join(lines)
 
 
+T = TypeVar("T")
+
+
+async def _run_batch(
+    items: List[T],
+    operation_label: str,
+    op: Callable[[OutlineClient, T], Awaitable[Dict[str, Any]]],
+    *,
+    id_of: Callable[[T], str] = str,
+) -> str:
+    """
+    Run ``op`` over ``items`` with per-item error isolation.
+
+    Owns client acquisition, iteration, per-item error isolation,
+    success/failure tallying, and result formatting. Each ``op``
+    returns a result entry (success or expected failure); a raised
+    exception is converted into a failure entry keyed by ``id_of``.
+
+    Args:
+        items: Items to process (document IDs or spec objects).
+        operation_label: Verb shown in the summary (e.g. ``archive``).
+        op: Async per-item operation returning a result entry from
+            ``_create_result_entry``.
+        id_of: Maps an item to the id used when ``op`` raises before a
+            result entry exists. Defaults to ``str`` (the item is its
+            own id); batch create passes a constant because the id is
+            only known after a successful call.
+
+    Returns:
+        Formatted batch operation summary.
+    """
+    results: List[Dict[str, Any]] = []
+
+    try:
+        client = await get_outline_client()
+
+        for item in items:
+            try:
+                results.append(await op(client, item))
+            except OutlineClientError as e:
+                results.append(
+                    _create_result_entry(id_of(item), "failed", error=str(e))
+                )
+            except Exception as e:
+                results.append(
+                    _create_result_entry(
+                        id_of(item),
+                        "failed",
+                        error=f"Unexpected error: {str(e)}",
+                    )
+                )
+
+        succeeded = sum(1 for r in results if r["status"] == "success")
+        failed = len(results) - succeeded
+        return _format_batch_results(
+            operation_label, len(items), succeeded, failed, results
+        )
+
+    except OutlineClientError as e:
+        return f"Error initializing client: {str(e)}"
+    except Exception as e:
+        return f"Unexpected error: {str(e)}"
+
+
 def register_tools(mcp) -> None:
     """
     Register batch operation tools with the MCP server.
@@ -127,11 +194,13 @@ def register_tools(mcp) -> None:
             readOnlyHint=False,
             destructiveHint=True,
             idempotentHint=True,
-        )
+        ),
+        meta={
+            "endpoint": "documents.archive",
+            "min_role": "member",
+        },
     )
-    async def batch_archive_documents(
-        document_ids: list[str], ctx: Context | None = None
-    ) -> str:
+    async def batch_archive_documents(document_ids: List[str]) -> str:
         """
         Archives multiple documents in a single batch operation.
 
@@ -159,72 +228,35 @@ def register_tools(mcp) -> None:
         if not document_ids:
             return "Error: No document IDs provided."
 
-        results: list[dict[str, Any]] = []
-        succeeded = 0
-        failed = 0
-
-        try:
-            client = await get_outline_client(ctx=ctx)
-
-            for doc_id in document_ids:
-                try:
-                    document = await client.archive_document(doc_id)
-
-                    if document:
-                        results.append(
-                            _create_result_entry(
-                                doc_id,
-                                "success",
-                                title=document.get("title", "Untitled"),
-                            )
-                        )
-                        succeeded += 1
-                    else:
-                        results.append(
-                            _create_result_entry(
-                                doc_id,
-                                "failed",
-                                error="No document returned from API",
-                            )
-                        )
-                        failed += 1
-
-                except OutlineClientError as e:
-                    results.append(
-                        _create_result_entry(doc_id, "failed", error=str(e))
-                    )
-                    failed += 1
-                except Exception as e:
-                    results.append(
-                        _create_result_entry(
-                            doc_id,
-                            "failed",
-                            error=f"Unexpected error: {str(e)}",
-                        )
-                    )
-                    failed += 1
-
-            return _format_batch_results(
-                "archive", len(document_ids), succeeded, failed, results
+        async def op(client: OutlineClient, doc_id: str) -> Dict[str, Any]:
+            document = await client.archive_document(doc_id)
+            if document:
+                return _create_result_entry(
+                    doc_id,
+                    "success",
+                    title=document.get("title", "Untitled"),
+                )
+            return _create_result_entry(
+                doc_id, "failed", error="No document returned from API"
             )
 
-        except OutlineClientError as e:
-            return f"Error initializing client: {str(e)}"
-        except Exception as e:
-            return f"Unexpected error: {str(e)}"
+        return await _run_batch(document_ids, "archive", op)
 
     @mcp.tool(
         annotations=ToolAnnotations(
             readOnlyHint=False,
             destructiveHint=True,
             idempotentHint=True,
-        )
+        ),
+        meta={
+            "endpoint": "documents.move",
+            "min_role": "member",
+        },
     )
     async def batch_move_documents(
-        document_ids: list[str],
-        collection_id: str | None = None,
-        parent_document_id: str | None = None,
-        ctx: Context | None = None,
+        document_ids: List[str],
+        collection_id: Optional[str] = None,
+        parent_document_id: Optional[str] = None,
     ) -> str:
         """
         Moves multiple documents to a different collection or parent.
@@ -247,9 +279,7 @@ def register_tools(mcp) -> None:
         Args:
             document_ids: List of document IDs to move
             collection_id: Target collection ID (optional)
-            parent_document_id: Full UUID string (e.g.
-                580b8429-8da4-4409-a2ad-f86e194074b6). Must be the complete
-                UUID, not a truncated value or number.
+            parent_document_id: Target parent document ID (optional)
 
         Returns:
             Summary of batch operation with success/failure details
@@ -263,92 +293,43 @@ def register_tools(mcp) -> None:
                 "parent_document_id."
             )
 
-        # Validate parent_document_id is a proper UUID before processing
-        parsed_parent_id: str | None = None
+        # Destination is the same for every document; build it once.
+        destination: Dict[str, str] = {}
+        if collection_id:
+            destination["collectionId"] = collection_id
         if parent_document_id:
-            try:
-                parsed_parent_id = ensure_uuid_string(
-                    parent_document_id, "parent_document_id"
+            destination["parentDocumentId"] = parent_document_id
+
+        async def op(client: OutlineClient, doc_id: str) -> Dict[str, Any]:
+            response = await client.post(
+                "documents.move", {"id": doc_id, **destination}
+            )
+            if response.get("data"):
+                doc_data = response.get("data", {})
+                return _create_result_entry(
+                    doc_id,
+                    "success",
+                    title=doc_data.get("title", "Untitled"),
                 )
-            except ValueError as e:
-                return f"Error: {e}"
-
-        results: list[dict[str, Any]] = []
-        succeeded = 0
-        failed = 0
-
-        try:
-            client = await get_outline_client(ctx=ctx)
-
-            for doc_id in document_ids:
-                try:
-                    # Build request data
-                    data = {"id": doc_id}
-
-                    if collection_id:
-                        data["collectionId"] = collection_id
-
-                    if parsed_parent_id:
-                        data["parentDocumentId"] = parsed_parent_id
-
-                    response = await client.post("documents.move", data)
-
-                    if response.get("data"):
-                        # Get document title for success message
-                        doc_data = response.get("data", {})
-                        results.append(
-                            _create_result_entry(
-                                doc_id,
-                                "success",
-                                title=doc_data.get("title", "Untitled"),
-                            )
-                        )
-                        succeeded += 1
-                    else:
-                        results.append(
-                            _create_result_entry(
-                                doc_id,
-                                "failed",
-                                error="Failed to move document",
-                            )
-                        )
-                        failed += 1
-
-                except OutlineClientError as e:
-                    results.append(
-                        _create_result_entry(doc_id, "failed", error=str(e))
-                    )
-                    failed += 1
-                except Exception as e:
-                    results.append(
-                        _create_result_entry(
-                            doc_id,
-                            "failed",
-                            error=f"Unexpected error: {str(e)}",
-                        )
-                    )
-                    failed += 1
-
-            return _format_batch_results(
-                "move", len(document_ids), succeeded, failed, results
+            return _create_result_entry(
+                doc_id, "failed", error="Failed to move document"
             )
 
-        except OutlineClientError as e:
-            return f"Error initializing client: {str(e)}"
-        except Exception as e:
-            return f"Unexpected error: {str(e)}"
+        return await _run_batch(document_ids, "move", op)
 
     @mcp.tool(
         annotations=ToolAnnotations(
             readOnlyHint=False,
             destructiveHint=True,
             idempotentHint=True,
-        )
+        ),
+        meta={
+            "endpoint": "documents.delete",
+            "min_role": "member",
+        },
     )
     async def batch_delete_documents(
-        document_ids: list[str],
-        permanent: bool = False,
-        ctx: Context | None = None,
+        document_ids: List[str], permanent: bool = False
     ) -> str:
         """
         Deletes multiple documents, moving them to trash or permanently.
@@ -377,382 +358,194 @@ def register_tools(mcp) -> None:
         if not document_ids:
             return "Error: No document IDs provided."
 
-        results: list[dict[str, Any]] = []
-        succeeded = 0
-        failed = 0
-
-        try:
-            client = await get_outline_client(ctx=ctx)
-
-            for doc_id in document_ids:
-                try:
-                    if permanent:
-                        success = await client.permanently_delete_document(
-                            doc_id
-                        )
-                        if success:
-                            results.append(
-                                _create_result_entry(
-                                    doc_id,
-                                    "success",
-                                    title="Permanently deleted",
-                                )
-                            )
-                            succeeded += 1
-                        else:
-                            results.append(
-                                _create_result_entry(
-                                    doc_id,
-                                    "failed",
-                                    error="Permanent deletion failed",
-                                )
-                            )
-                            failed += 1
-                    else:
-                        # Get document details before deleting
-                        document = await client.get_document(doc_id)
-                        doc_title = document.get("title", "Untitled")
-
-                        # Move to trash
-                        response = await client.post(
-                            "documents.delete", {"id": doc_id}
-                        )
-
-                        if response.get("success", False):
-                            results.append(
-                                _create_result_entry(
-                                    doc_id, "success", title=doc_title
-                                )
-                            )
-                            succeeded += 1
-                        else:
-                            results.append(
-                                _create_result_entry(
-                                    doc_id,
-                                    "failed",
-                                    error="Failed to move to trash",
-                                )
-                            )
-                            failed += 1
-
-                except OutlineClientError as e:
-                    results.append(
-                        _create_result_entry(doc_id, "failed", error=str(e))
+        async def op(client: OutlineClient, doc_id: str) -> Dict[str, Any]:
+            if permanent:
+                success = await client.permanently_delete_document(doc_id)
+                if success:
+                    return _create_result_entry(
+                        doc_id, "success", title="Permanently deleted"
                     )
-                    failed += 1
-                except Exception as e:
-                    results.append(
-                        _create_result_entry(
-                            doc_id,
-                            "failed",
-                            error=f"Unexpected error: {str(e)}",
-                        )
-                    )
-                    failed += 1
+                return _create_result_entry(
+                    doc_id, "failed", error="Permanent deletion failed"
+                )
 
-            operation = "permanently delete" if permanent else "delete"
-            return _format_batch_results(
-                operation, len(document_ids), succeeded, failed, results
+            # Get document details before deleting
+            document = await client.get_document(doc_id)
+            doc_title = document.get("title", "Untitled")
+
+            # Move to trash
+            response = await client.post("documents.delete", {"id": doc_id})
+            if response.get("success", False):
+                return _create_result_entry(doc_id, "success", title=doc_title)
+            return _create_result_entry(
+                doc_id, "failed", error="Failed to move to trash"
             )
 
-        except OutlineClientError as e:
-            return f"Error initializing client: {str(e)}"
-        except Exception as e:
-            return f"Unexpected error: {str(e)}"
+        operation = "permanently delete" if permanent else "delete"
+        return await _run_batch(document_ids, operation, op)
 
     @mcp.tool(
         annotations=ToolAnnotations(
             readOnlyHint=False,
             destructiveHint=True,
             idempotentHint=True,
-        )
+        ),
+        meta={
+            "endpoint": "documents.update",
+            "min_role": "member",
+        },
     )
     async def batch_update_documents(
-        updates: list[dict[str, Any]], ctx: Context | None = None
+        updates: List[BatchUpdateItem],
     ) -> str:
         """
         Updates multiple documents with different changes.
 
-        This tool processes each update sequentially, continuing even if
-        individual operations fail. Rate limiting is handled automatically.
-
-        Each update dictionary should contain:
-        - id (required): Document ID to update
-        - title (optional): New title
-        - text (optional): New content
-        - append (optional): If True, appends text instead of replacing.
-            This is the reliable way to perform additive updates.
+        This tool processes each update sequentially,
+        continuing even if individual operations fail.
+        Rate limiting is handled automatically.
 
         Use this tool when you need to:
         - Update multiple documents with different changes
         - Batch edit document titles or content
         - Append content to multiple documents
 
-        Note: For Mermaid diagrams, use ```mermaidjs (not ```mermaid)
-        as the code fence language identifier for proper rendering.
+        Note: For Mermaid diagrams, use ```mermaidjs
+        (not ```mermaid) as the code fence language
+        identifier for proper rendering.
 
-        Recommended batch size: 10-50 documents per operation
+        Recommended batch size: 10-50 documents per
+        operation
 
         Args:
-            updates: List of update specifications, each containing id and
-                optional title, text, and append fields
+            updates: List of update specifications
 
         Returns:
-            Summary of batch operation with success/failure details
+            Summary of batch operation with
+            success/failure details
         """
         if not updates:
             return "Error: No updates provided."
 
-        results: list[dict[str, Any]] = []
-        succeeded = 0
-        failed = 0
+        async def op(
+            client: OutlineClient, update_spec: BatchUpdateItem
+        ) -> Dict[str, Any]:
+            doc_id = update_spec.id
+            data: Dict[str, Any] = {"id": doc_id}
 
-        try:
-            client = await get_outline_client(ctx=ctx)
+            if update_spec.title is not None:
+                data["title"] = update_spec.title
 
-            for update_spec in updates:
-                doc_id = update_spec.get("id")
+            if update_spec.text is not None:
+                data["text"] = update_spec.text
+                data["append"] = (
+                    update_spec.append
+                    if update_spec.append is not None
+                    else False
+                )
 
-                if not doc_id:
-                    results.append(
-                        _create_result_entry(
-                            "unknown",
-                            "failed",
-                            error="Validation error: Missing document ID",
-                        )
-                    )
-                    failed += 1
-                    continue
+            response = await client.post("documents.update", data)
+            document = response.get("data", {})
 
-                try:
-                    data: dict[str, Any] = {"id": require_uuid_string(doc_id, "document_id")}
-
-                    if "title" in update_spec:
-                        data["title"] = ensure_text_is_str(
-                            update_spec["title"], "title"
-                        )
-                    if "text" in update_spec:
-                        data["text"] = ensure_text_is_str(
-                            update_spec["text"], "text"
-                        )
-                        data["append"] = update_spec.get("append", False)
-
-                    response = await client.post("documents.update", data)
-                    document = response.get("data", {})
-
-                    if document:
-                        results.append(
-                            _create_result_entry(
-                                doc_id,
-                                "success",
-                                title=document.get("title", "Untitled"),
-                            )
-                        )
-                        succeeded += 1
-                    else:
-                        results.append(
-                            _create_result_entry(
-                                doc_id,
-                                "failed",
-                                error="Failed to update document",
-                            )
-                        )
-                        failed += 1
-
-                except (TypeError, ValueError) as e:
-                    results.append(
-                        _create_result_entry(
-                            doc_id,
-                            "failed",
-                            error=f"Validation error: {e}",
-                        )
-                    )
-                    failed += 1
-                except OutlineClientError as e:
-                    results.append(
-                        _create_result_entry(doc_id, "failed", error=str(e))
-                    )
-                    failed += 1
-                except Exception as e:
-                    results.append(
-                        _create_result_entry(
-                            doc_id,
-                            "failed",
-                            error=f"Unexpected error: {str(e)}",
-                        )
-                    )
-                    failed += 1
-
-            return _format_batch_results(
-                "update", len(updates), succeeded, failed, results
+            if document:
+                cache = get_document_cache()
+                await cache.invalidate_for_write(
+                    get_resolved_api_key(), doc_id
+                )
+                return _create_result_entry(
+                    doc_id,
+                    "success",
+                    title=document.get("title", "Untitled"),
+                )
+            return _create_result_entry(
+                doc_id, "failed", error="Failed to update document"
             )
 
-        except OutlineClientError as e:
-            return f"Error initializing client: {str(e)}"
-        except Exception as e:
-            return f"Unexpected error: {str(e)}"
+        return await _run_batch(updates, "update", op, id_of=lambda u: u.id)
 
     @mcp.tool(
         annotations=ToolAnnotations(
             readOnlyHint=False,
             destructiveHint=True,
             idempotentHint=True,
-        )
+        ),
+        meta={
+            "endpoint": "documents.create",
+            "min_role": "member",
+        },
     )
     async def batch_create_documents(
-        documents: list[dict[str, Any]], ctx: Context | None = None
+        documents: List[BatchCreateItem],
     ) -> str:
         """
-        Creates multiple documents in a single batch operation.
+        Creates multiple documents in a single batch
+        operation.
 
-        This tool processes each creation sequentially, continuing even if
-        individual operations fail. Rate limiting is handled automatically.
-
-        Each document dictionary should contain:
-        - title (required): Document title
-        - collection_id (required): Collection ID to create in
-        - text (optional): Markdown content
-        - parent_document_id (optional): Full UUID string for nesting.
-            Must be the complete UUID, not truncated or numeric.
-        - publish (optional): Whether to publish immediately (default: True)
+        This tool processes each creation sequentially,
+        continuing even if individual operations fail.
+        Rate limiting is handled automatically.
 
         Use this tool when you need to:
         - Create multiple documents at once
         - Bulk import content into collections
         - Set up document structures efficiently
 
-        Note: For Mermaid diagrams, use ```mermaidjs (not ```mermaid)
-        as the code fence language identifier for proper rendering.
+        Note: For Mermaid diagrams, use ```mermaidjs
+        (not ```mermaid) as the code fence language
+        identifier for proper rendering.
 
-        Recommended batch size: 10-50 documents per operation
+        Recommended batch size: 10-50 documents per
+        operation
 
         Args:
-            documents: List of document specifications, each containing
-                title, collection_id, and optional text, parent_document_id,
-                and publish fields
+            documents: List of document specifications
 
         Returns:
-            Summary of batch operation with created document IDs and
-            success/failure details
+            Summary of batch operation with created
+            document IDs and success/failure details
         """
         if not documents:
             return "Error: No documents provided."
 
-        results: list[dict[str, Any]] = []
-        succeeded = 0
-        failed = 0
-        created_ids: list[str] = []
+        created_ids: List[str] = []
 
-        try:
-            client = await get_outline_client(ctx=ctx)
+        async def op(
+            client: OutlineClient, doc_spec: BatchCreateItem
+        ) -> Dict[str, Any]:
+            data: Dict[str, Any] = {
+                "title": doc_spec.title,
+                "collectionId": doc_spec.collection_id,
+                "text": doc_spec.text or "",
+                "publish": (
+                    doc_spec.publish if doc_spec.publish is not None else True
+                ),
+            }
+            if doc_spec.parent_document_id:
+                data["parentDocumentId"] = doc_spec.parent_document_id
 
-            for doc_spec in documents:
-                # Validate required fields
-                if "title" not in doc_spec:
-                    results.append(
-                        _create_result_entry(
-                            "unknown",
-                            "failed",
-                            error="Missing required field: title",
-                        )
-                    )
-                    failed += 1
-                    continue
+            response = await client.post("documents.create", data)
+            document = response.get("data", {})
 
-                if "collection_id" not in doc_spec:
-                    results.append(
-                        _create_result_entry(
-                            "unknown",
-                            "failed",
-                            error="Missing required field: collection_id",
-                        )
-                    )
-                    failed += 1
-                    continue
-
-                try:
-                    data = {
-                        "title": ensure_text_is_str(
-                            doc_spec["title"], "title"
-                        ),
-                        "collectionId": require_uuid_string(
-                            doc_spec["collection_id"], "collection_id"
-                        ),
-                        "text": ensure_text_is_str(
-                            doc_spec.get("text", ""), "text"
-                        ),
-                        "publish": doc_spec.get("publish", True),
-                    }
-
-                    if "parent_document_id" in doc_spec:
-                        parsed = ensure_uuid_string(
-                            doc_spec["parent_document_id"],
-                            "parent_document_id",
-                        )
-                        if parsed:
-                            data["parentDocumentId"] = parsed
-
-                    response = await client.post("documents.create", data)
-                    document = response.get("data", {})
-
-                    if document:
-                        doc_id = document.get("id", "unknown")
-                        doc_title = document.get("title", "Untitled")
-                        created_ids.append(doc_id)
-                        results.append(
-                            _create_result_entry(
-                                doc_id, "success", title=doc_title
-                            )
-                        )
-                        succeeded += 1
-                    else:
-                        results.append(
-                            _create_result_entry(
-                                "unknown",
-                                "failed",
-                                error="Failed to create document",
-                            )
-                        )
-                        failed += 1
-
-                except (TypeError, ValueError) as e:
-                    results.append(
-                        _create_result_entry(
-                            "unknown",
-                            "failed",
-                            error=f"Validation error: {e}",
-                        )
-                    )
-                    failed += 1
-                except OutlineClientError as e:
-                    results.append(
-                        _create_result_entry("unknown", "failed", error=str(e))
-                    )
-                    failed += 1
-                except Exception as e:
-                    results.append(
-                        _create_result_entry(
-                            "unknown",
-                            "failed",
-                            error=f"Unexpected error: {str(e)}",
-                        )
-                    )
-                    failed += 1
-
-            # Format results with created IDs
-            result_text = _format_batch_results(
-                "create", len(documents), succeeded, failed, results
+            if document:
+                doc_id = document.get("id", "unknown")
+                created_ids.append(doc_id)
+                return _create_result_entry(
+                    doc_id,
+                    "success",
+                    title=document.get("title", "Untitled"),
+                )
+            return _create_result_entry(
+                "unknown", "failed", error="Failed to create document"
             )
 
-            # Add created IDs section if any succeeded
-            if created_ids:
-                result_text += "\n\nCreated Document IDs:\n"
-                for doc_id in created_ids:
-                    result_text += f"  - {doc_id}\n"
+        result_text = await _run_batch(
+            documents, "create", op, id_of=lambda _: "unknown"
+        )
 
-            return result_text
+        # Add created IDs section if any succeeded
+        if created_ids:
+            result_text += "\n\nCreated Document IDs:\n"
+            for doc_id in created_ids:
+                result_text += f"  - {doc_id}\n"
 
-        except OutlineClientError as e:
-            return f"Error initializing client: {str(e)}"
-        except Exception as e:
-            return f"Unexpected error: {str(e)}"
+        return result_text

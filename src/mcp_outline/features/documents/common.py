@@ -137,6 +137,20 @@ def _get_request_from_context(ctx: Context | None) -> Request | None:
     return None
 
 
+def _get_request_from_request_ctx() -> Request | None:
+    """Extract HTTP request from MCP SDK request_ctx (streamable-http/SSE)."""
+    try:
+        from mcp.server.lowlevel.server import request_ctx
+
+        ctx = request_ctx.get()
+        req = ctx.request
+        if isinstance(req, Request):
+            return req
+    except (LookupError, ImportError, AttributeError, ValueError):
+        pass
+    return None
+
+
 async def get_outline_client(
     ctx: Context | None = None, request: Request | None = None
 ) -> OutlineClient:
@@ -151,7 +165,11 @@ async def get_outline_client(
     """
     try:
         config = AuthConfig.from_env()
-        resolved_request = request or _get_request_from_context(ctx)
+        resolved_request = (
+            request
+            or _get_request_from_context(ctx)
+            or _get_request_from_request_ctx()
+        )
         auth_ctx = build_request_auth(resolved_request, config)
 
         if auth_ctx is not None:
@@ -164,7 +182,15 @@ async def get_outline_client(
                 "Passthrough auth is required in this environment."
             )
 
-        api_key = os.getenv("OUTLINE_API_KEY")
+        header_api_key = None
+        if resolved_request is not None:
+            from mcp_outline.utils.outline_client import _sanitize_value
+
+            header_api_key = _sanitize_value(
+                resolved_request.headers.get("x-outline-api-key")
+            )
+
+        api_key = header_api_key or os.getenv("OUTLINE_API_KEY")
         api_url = os.getenv("OUTLINE_API_URL")
         return OutlineClient(api_key=api_key, api_url=api_url)
     except (RequestAuthError, AuthConfigError) as e:

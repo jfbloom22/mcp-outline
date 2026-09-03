@@ -13,8 +13,9 @@ requires-python = ">=3.10"
 readme = "README.md"
 license-files = ["LICENSE"]
 dependencies = [
-    "mcp[cli]>=1.20.0",
+    "mcp[cli]>=1.20.0,<2",
     "httpx>=0.27.0",
+    "python-dotenv>=1.0.0",
 ]
 
 [project.scripts]
@@ -24,9 +25,10 @@ mcp-outline = "mcp_outline.server:main"
 "Homepage" = "https://github.com/Vortiago/mcp-outline"
 "Bug Tracker" = "https://github.com/Vortiago/mcp-outline/issues"
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
-    "mcp[cli]>=1.20.0",
+    "poethepoet>=0.32.0",
+    "mcp[cli]>=1.20.0,<2",
     "pytest>=8.4.0",
     "pytest-asyncio>=1.2.0",
     "pytest-cov>=6.0.0",
@@ -37,6 +39,12 @@ dev = [
     "pre-commit>=4.0.0",
 ]
 
+[tool.poe.tasks]
+test-unit = "pytest tests/ -v --cov=src/mcp_outline"
+test-integration = "pytest tests/ -v -m integration"
+test-e2e = "pytest tests/e2e/ -v -m e2e"
+bump-version = "python scripts/bump_version.py"
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 
@@ -44,14 +52,16 @@ package-dir = {"" = "src"}
 testpaths = ["tests"]
 python_files = "test_*.py"
 python_functions = "test_*"
+addopts = "-m 'not e2e and not integration'"
 markers = [
     "integration: Integration tests that start the MCP server",
+    "e2e: End-to-end tests requiring docker-compose stack",
 ]
 
 [tool.ruff]
 line-length = 79
 target-version = "py310"
-extend-exclude = ["docs"]
+extend-exclude = ["docs", ".claude"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]

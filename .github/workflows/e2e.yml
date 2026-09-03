@@ -1,0 +1,70 @@
+name: E2E Tests
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  checks: write
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Prepare Outline config
+        run: cp config/outline.env.example config/outline.env
+
+      - name: Start Outline stack
+        run: docker compose -p mcp-outline-e2e -f docker-compose.yml -f docker-compose.e2e.yml up -d outline
+        env:
+          DEX_HOST_PORT: "5557"
+          OUTLINE_HOST_PORT: "3031"
+
+      - name: Dump container state on failure
+        if: failure()
+        run: |
+          echo "=== docker ps -a ==="
+          docker ps -a
+          echo "=== docker inspect postgres health ==="
+          docker inspect --format='{{json .State.Health}}' mcp-outline-e2e-postgres-1 || true
+          echo "=== postgres logs ==="
+          docker compose -p mcp-outline-e2e -f docker-compose.yml -f docker-compose.e2e.yml logs postgres || true
+          echo "=== redis logs ==="
+          docker compose -p mcp-outline-e2e -f docker-compose.yml -f docker-compose.e2e.yml logs redis || true
+          echo "=== dex logs ==="
+          docker compose -p mcp-outline-e2e -f docker-compose.yml -f docker-compose.e2e.yml logs dex || true
+          echo "=== outline logs ==="
+          docker compose -p mcp-outline-e2e -f docker-compose.yml -f docker-compose.e2e.yml logs outline || true
+
+      - name: Run E2E tests
+        run: uv run pytest tests/e2e/ -v -m e2e --junit-xml=e2e-results.xml
+
+      - name: Test report
+        uses: mikepenz/action-junit-report@d9f48fc87bc235f7e214acf696ca5abc0a986f16 # v6
+        if: always()
+        with:
+          report_paths: e2e-results.xml
+          check_name: E2E Test Report
+
+      - name: Tear down
+        if: always()
+        run: docker compose -p mcp-outline-e2e -f docker-compose.yml -f docker-compose.e2e.yml down -v

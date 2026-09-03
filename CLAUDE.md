@@ -6,51 +6,98 @@ This guide helps you implement and modify the MCP Outline server effectively.
 
 This MCP server bridges AI assistants with Outline's document management platform:
 - REST API integration for Outline services
-- Tools for documents, collections, and comments
-- API key authentication
+- Tools for documents, collections, attachments, and comments
+- MCP resources via `outline://` URI scheme
+- API key authentication with rate limiting
 - Docker and local development support
+- Health check endpoints for container orchestration
 
 ## Architecture
 
 ### Tool Categories
 
 - **Search**: Find documents, collections, hierarchies
-- **Reading**: Read content, export markdown
-- **Content**: Create, update, comment
+- **Reading**: Read content (with pagination), TOC, section reading, in-document search (grep-style), export markdown
+- **Editing**: String-match editing with optional staging
+- **Attachments**: Resolve URLs, fetch content, list attachments
+- **Content**: Create, update, comment (supports templates)
 - **Organization**: Move documents between collections
 - **Lifecycle**: Archive, delete, restore operations
 - **Collaboration**: Comments, backlinks
 - **Collections**: Create, update, delete, export
+- **Batch Operations**: Bulk create, update, move, archive, delete
 - **AI**: Natural language queries
+
+### Feature Registration Flow
+
+```
+register_all(mcp)
+  |- health.register_routes(mcp)               # Always
+  |- documents.register(mcp)
+  |   |- document_search.register_tools()      # Always (recent-changes tool: if not OUTLINE_DISABLE_RECENT_DOCUMENTS)
+  |   |- document_reading.register_tools()     # Always
+  |   |- document_navigation.register_tools()  # Always
+  |   |- document_attachments.register_tools() # Always
+  |   |- document_collaboration.register_tools() # Always
+  |   |- collection_tools.register_tools()     # Always (exports always, writes conditional)
+  |   |- ai_tools.register_tools()             # If not OUTLINE_DISABLE_AI_TOOLS
+  |   |- document_content.register_tools()     # If not OUTLINE_READ_ONLY
+  |   |- document_editing.register_tools()     # If not OUTLINE_READ_ONLY
+  |   |- document_lifecycle.register_tools()   # If not OUTLINE_READ_ONLY
+  |   |- document_organization.register_tools() # If not OUTLINE_READ_ONLY
+  |   |- batch_operations.register_tools()     # If not OUTLINE_READ_ONLY
+  |- resources.register(mcp)                   # Always
+install_dynamic_tool_list(mcp)                   # If OUTLINE_DYNAMIC_TOOL_LIST=true
+```
+
+For dynamic tool list architecture and scope matching details, see
+[docs/dynamic-tool-list.md](docs/dynamic-tool-list.md).
+
+### Plugin Components (Claude Code)
+
+- `agents/outline-explorer.md` — fast read-only exploration agent (search, TOC-first reading, synthesis)
+- `skills/outline/SKILL.md` — Outline conventions skill (mermaidjs fences, structure, editing/staging workflows, search status filters)
+
+Both reference MCP tools by name. When renaming tools or changing
+parameters, update the agent, the skill, and the server instructions
+(`_build_instructions` in `server.py`) together.
+
+### MCP Resources (`outline://` URI scheme)
+
+- `outline://document/{document_id}` - Full markdown content
+- `outline://document/{document_id}/backlinks` - Documents linking to this one
+- `outline://collection/{collection_id}` - Collection metadata
+- `outline://collection/{collection_id}/tree` - Hierarchical document tree
+- `outline://collection/{collection_id}/documents` - List documents in collection
+
+### Health Check Endpoints
+
+- `GET /health` - Liveness probe (always returns 200)
+- `GET /ready` - Readiness probe (verifies API connectivity, returns 503 if not ready)
 
 ## Core Concepts
 
 ### Outline Objects
 
-- **Documents**: Markdown content with title and metadata
+- **Documents**: Markdown content with title, URL, and metadata
 - **Collections**: Grouping with name, description, color
-- **Comments**: Threaded discussions with replies
+- **Comments**: Threaded discussions with replies and anchor text
+- **Attachments**: Binary files referenced in document content
 - **Hierarchy**: Parent-child document relationships
-- **Lifecycle**: Draft → Published → Archived → Deleted
+- **Templates**: Documents marked as templates appear in "New from template" picker
+- **Lifecycle**: Draft -> Published -> Archived -> Deleted
 
 ### API Client
 
 `OutlineClient` in `utils/outline_client.py` handles async REST API interactions:
 
 **Operations** (all async):
-- Documents: get, search, create, update, move, archive, delete, restore
-- Collections: list, create, update, delete, export
+- Documents: get, search, list, create, update, move, archive, unarchive, delete, restore
+- Collections: list, get, get_documents, create, update, delete, export, export_all
 - Comments: create, list, get
+- Attachments: get_redirect_url, fetch_content
 - AI: answer questions
-
-**Configuration**:
-- `OUTLINE_API_KEY` (required)
-- `OUTLINE_API_URL` (optional, defaults to https://app.getoutline.com/api)
-- `OUTLINE_MAX_CONNECTIONS` (optional, default: 100) - Maximum concurrent connections
-- `OUTLINE_MAX_KEEPALIVE` (optional, default: 20) - Maximum idle connections in pool
-- `OUTLINE_TIMEOUT` (optional, default: 30.0) - Request timeout in seconds
-- `OUTLINE_CONNECT_TIMEOUT` (optional, default: 5.0) - Connection timeout in seconds
-- Authentication via Bearer token
+- API Keys: list_api_keys (scope introspection for dynamic tool list)
 
 **Connection Pooling**:
 - Uses httpx with class-level connection pool
@@ -58,17 +105,44 @@ This MCP server bridges AI assistants with Outline's document management platfor
 - Automatic connection reuse for better performance
 - Configurable limits via environment variables
 
+**Rate Limiting**:
+- Tracks `RateLimit-Remaining` and `RateLimit-Reset` headers, waits proactively when exhausted
+- Uses asyncio.Lock for thread-safe rate limiting in concurrent scenarios
+- Automatic retry with exponential backoff (max 3 attempts)
+- Respects `Retry-After` header on HTTP 429 responses
+- Enabled by default, no configuration required
+
 **Error Handling**:
 - Raises `OutlineError` for API failures
 - Tools catch exceptions and return error strings
 - Supports httpx exceptions (RequestError, HTTPStatusError, TimeoutException)
 
-**Rate Limiting**:
-- Tracks `RateLimit-Remaining` and `RateLimit-Reset` headers, waits proactively when exhausted
-- Uses asyncio.Lock for thread-safe rate limiting in concurrent scenarios
-- Automatic handling of HTTP 429 responses
-- Respects `Retry-After` header
-- Enabled by default, no configuration required
+### Common Utilities (`features/documents/common.py`)
+
+- `get_outline_client()` - Async function that creates an OutlineClient. Checks for a per-user Outline API key from the `x-outline-api-key` HTTP header first (SSE/streamable-http), then falls back to `OUTLINE_API_KEY` env var.
+- `get_resolved_api_key()` - Returns the resolved API key (header > env var) as a string. Used by both the client factory and the document cache for keying.
+- `_get_header_api_key()` - Reads the `x-outline-api-key` header from the MCP SDK's `request_ctx` ContextVar. Returns `None` for stdio or when header is absent.
+- `OutlineClientError` - Exception class for client-related errors
+
+### Document Cache (`utils/document_cache.py`)
+
+In-memory LRU cache with configurable TTL for document content. Reduces Outline API calls and enables staged edits.
+
+- **Key**: `(api_key, document_id)` tuple for multi-tenant isolation
+- **Implementation**: `OrderedDict` + `asyncio.Lock`
+- **TTL**: `OUTLINE_CACHE_TTL` env var (default `30` — absorbs same-task read bursts; `0` disables caching, higher values save more API calls)
+- **Max size**: `OUTLINE_CACHE_MAX_SIZE` env var (default 100)
+- **Dirty tracking**: Staged edits are stored via `stage_text()` (dirty upsert); LRU eviction, `evict_document()`, and `put()` all preserve dirty entries so staged work is never silently lost
+- **Singleton**: `get_document_cache()` returns module-level instance; `reset_document_cache()` for tests
+
+**Reading tools** (`read_document`, `get_document_toc`, `read_document_section`) cache on read via `get_cached_or_fetch()` and append an unsaved-changes notice when serving staged (dirty) text.
+**Edit tools** (`edit_document`) operate on cached text; `save=True` (default) pushes to Outline immediately. `edit_document(edits=[], save=True)` flushes staged changes.
+**Writers** (`update_document`, `batch_update_documents`, `delete_document`) explicitly evict the caller's own entry (`evict()`) plus all clean copies (`evict_document()`) after a successful API call; other users' staged edits survive and surface a conflict at their own save time.
+
+### Copilot CLI Patch (`patches/copilot_cli.py`)
+
+Workaround for GitHub Copilot CLI sending `""` instead of `{}` for empty tool parameters.
+Applied before server initialization. Patches `mcp.types.CallToolRequestParams` with a field validator.
 
 ## Implementation Patterns
 
@@ -77,10 +151,15 @@ This MCP server bridges AI assistants with Outline's document management platfor
 Feature modules follow this pattern:
 
 ```python
-# 1. Imports (standard lib → third-party → local)
+# 1. Imports (standard lib -> third-party -> local)
 import os
 from typing import Any, Optional
-from mcp_outline.utils.outline_client import OutlineClient
+from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
+from mcp_outline.features.documents.common import (
+    get_outline_client,
+    OutlineClientError,
+)
 
 # 2. Helper formatters (private functions)
 def _format_search_results(data: dict) -> str:
@@ -89,13 +168,20 @@ def _format_search_results(data: dict) -> str:
     pass
 
 # 3. Tool registration function
-def register_tools(mcp):
+def register_tools(mcp: FastMCP) -> None:
     """Register all tools in this module."""
 
-    @mcp.tool()
+    @mcp.tool(
+        annotations=ToolAnnotations(
+            readOnlyHint=True,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=True,
+        )
+    )
     async def search_documents(
         query: str,
-        collection_id: Optional[str] = None
+        collection_id: Optional[str] = None,
     ) -> str:
         """
         Search for documents by keywords.
@@ -109,8 +195,12 @@ def register_tools(mcp):
         """
         try:
             client = await get_outline_client()
-            result = await client.search_documents(query, collection_id)
+            result = await client.search_documents(
+                query, collection_id
+            )
             return _format_search_results(result)
+        except OutlineClientError as e:
+            return f"Outline API error: {str(e)}"
         except Exception as e:
             return f"Error: {str(e)}"
 ```
@@ -127,16 +217,35 @@ async def new_operation(self, param: str) -> dict:
 
 **Tool Function**:
 ```python
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=False,
+    ),
+    meta={"endpoint": "namespace.method", "min_role": "member"},
+)
 async def new_tool_name(param: str) -> str:
     """Clear description."""
     try:
         client = await get_outline_client()
         result = await client.new_operation(param)
         return _format_result(result)
+    except OutlineClientError as e:
+        return f"Outline API error: {str(e)}"
     except Exception as e:
         return f"Error: {str(e)}"
 ```
+
+The `meta` dict requires two fields:
+- `"endpoint"` — the Outline API endpoint (e.g. `documents.create`,
+  `collections.list`). Used for scope matching.
+- `"min_role"` — minimum Outline role: `"viewer"`, `"member"`, or
+  `"admin"`. Used for role-based filtering. Verified against Outline
+  route handlers (`collections.ts`, `documents.ts`) and
+  `AuthenticationHelper.ts`.
+
+The endpoint map and role-blocked map are derived automatically from
+tool metadata by `introspect.py` — no separate map files need updating.
 
 **Testing**: Mock OutlineClient, test success and error cases
 
@@ -148,7 +257,7 @@ async def new_tool_name(param: str) -> str:
 - Type hints for all functions
 - Max line length: 79 characters (ruff enforced)
 - Google-style docstrings
-- Import order: stdlib → third-party → local
+- Import order: stdlib -> third-party -> local
 - Single responsibility per function
 
 ### Error Handling
@@ -156,13 +265,17 @@ async def new_tool_name(param: str) -> str:
 ```python
 # In OutlineClient methods
 try:
-    response = await self._client_pool.post(url, headers=headers, json=data)
+    response = await self._client_pool.post(
+        url, headers=headers, json=data
+    )
     response.raise_for_status()
     return response.json()
 except httpx.HTTPStatusError as e:
     if e.response.status_code == 429:
         raise OutlineError(f"Rate limited")
-    raise OutlineError(f"HTTP {e.response.status_code}: {e.response.text}")
+    raise OutlineError(
+        f"HTTP {e.response.status_code}: {e.response.text}"
+    )
 except httpx.TimeoutException as e:
     raise OutlineError(f"Request timeout: {str(e)}")
 except httpx.RequestError as e:
@@ -173,7 +286,7 @@ try:
     client = await get_outline_client()
     result = await client.operation()
     return format_result(result)
-except OutlineError as e:
+except OutlineClientError as e:
     return f"Outline API error: {str(e)}"
 except Exception as e:
     return f"Error: {str(e)}"
@@ -195,22 +308,78 @@ async def test_tool():
         assert "expected" in result
 ```
 
+**Test Conventions**:
+- `TestOutlineClient` uses `setup_method`/`teardown_method` to save and restore
+  ALL environment variables it touches. New env vars MUST be added to both methods.
+- Tool test classes use `MockMCP` fixture and `register_*_tools` pattern
+- Use `AsyncMock` for client mocking, not manual mocks
+- Test names: `test_<method>_<scenario>` (e.g., `test_create_document_as_template`)
+- Every new parameter needs at least two tests: one with value set, one verifying
+  it's not sent when `None`/default
+
+### E2E Tests
+
+Run against a real Outline instance via Docker Compose:
+
+```bash
+uv run poe test-e2e
+```
+
+- **Marker**: `@pytest.mark.e2e` — excluded from normal `pytest` runs
+- **Fixture chain**: `outline_stack` (Docker lifecycle) →
+  `_outline_credentials` (OIDC login) → `outline_api_key` (API key
+  creation) / `outline_access_token` (session token) →
+  `mcp_server_params` → `mcp_session` (stdio client factory)
+- **OIDC fixture**: Uses manual cookie management (`_parse_set_cookies`) to
+  prevent httpx's cookie jar from leaking Outline cookies to Dex (both run on
+  localhost but on different ports)
+- **Attachment tests**: Upload a real file via the Outline REST API
+  (`attachments.create` + `files.create`) using the API key, then test
+  the read-only MCP attachment tools against it
+- **Skipped tools**:
+  - AI tool (`ask_ai_about_documents`): Disabled via `OUTLINE_DISABLE_AI_TOOLS`
+
 ### Configuration
 
 `.env` file:
 ```bash
-OUTLINE_API_KEY=<your_key>                 # Required
-OUTLINE_API_URL=<custom_url>               # Optional
-OUTLINE_MAX_CONNECTIONS=100                # Optional - Max connections
-OUTLINE_MAX_KEEPALIVE=20                   # Optional - Max keepalive
-OUTLINE_TIMEOUT=30.0                       # Optional - Request timeout
-OUTLINE_CONNECT_TIMEOUT=5.0                # Optional - Connect timeout
-OUTLINE_DISABLE_AI_TOOLS=true              # Optional - Disable AI tools
+# Outline API (optional — if unset, every request must include x-outline-api-key header)
+OUTLINE_API_KEY=<your_key>
+
+# Outline API (optional)
+OUTLINE_API_URL=<custom_url>               # Default: https://app.getoutline.com/api
+OUTLINE_VERIFY_SSL=true                    # Default: true (set false for self-signed certs)
+
+# Connection pooling (optional)
+OUTLINE_MAX_CONNECTIONS=100                # Max concurrent connections
+OUTLINE_MAX_KEEPALIVE=20                   # Max idle connections in pool
+OUTLINE_TIMEOUT=30.0                       # Read timeout in seconds
+OUTLINE_CONNECT_TIMEOUT=5.0               # Connection timeout in seconds
+OUTLINE_WRITE_TIMEOUT=30.0                # Write timeout in seconds
+
+# Document cache (optional)
+OUTLINE_CACHE_TTL=30                       # Cache TTL in seconds (default: 30; 0 disables)
+OUTLINE_CACHE_MAX_SIZE=100                 # Max cached documents (default: 100)
+
+# Feature flags (optional)
+OUTLINE_DISABLE_AI_TOOLS=true              # Disable AI tools
+OUTLINE_READ_ONLY=true                     # Disable all write operations
+OUTLINE_DISABLE_DELETE=true                # Disable delete operations only
+OUTLINE_DISABLE_RECENT_DOCUMENTS=true      # Disable the recent-changes tool only
+OUTLINE_DYNAMIC_TOOL_LIST=true             # Enable per-user tool filtering (requires apiKeys.list scope)
+
+# MCP server (optional)
+MCP_TRANSPORT=stdio                        # Transport: stdio, sse, streamable-http
+MCP_HOST=127.0.0.1                         # Server host (use 0.0.0.0 for Docker)
+MCP_PORT=3000                              # Server port
 ```
 
 **Access Control Notes**:
-- The server relies on Outline's native API key scopes and permissions.
-- `OUTLINE_DISABLE_AI_TOOLS`: Disables AI-powered tools.
+- `OUTLINE_READ_ONLY`: Blocks entire write modules at registration (content, lifecycle, organization, batch_operations)
+- `OUTLINE_DISABLE_DELETE`: Conditionally registers delete tools within document_lifecycle and collection_tools
+- `OUTLINE_DISABLE_RECENT_DOCUMENTS`: Conditionally registers the `list_recently_updated_documents` tool within document_search (opt-out; registered by default)
+- `OUTLINE_DYNAMIC_TOOL_LIST`: Off by default. Uses `apiKeys.list` to introspect API key scopes and filters tools per-user based on scope matching. Scoped API keys must include `apiKeys.list` in their scope array for introspection to work. Fail-open: if scope introspection fails, all tools are shown. Set to `true` to enable.
+- Read-only mode takes precedence: If both are set, server operates in read-only mode
 
 ### Critical Requirements
 
@@ -220,6 +389,7 @@ OUTLINE_DISABLE_AI_TOOLS=true              # Optional - Disable AI tools
 - Use `await` for ALL client method calls
 - Always use `await get_outline_client()` to get client instance
 - Catch exceptions, return error strings
+- Use `ToolAnnotations` on all tools (readOnlyHint, destructiveHint, etc.)
 - Follow KISS principle
 
 ### Pre-Commit Checks
@@ -240,11 +410,60 @@ uv run ruff check .
 uv run pyright src/
 
 # Run tests
-uv run pytest tests/ -v --cov=src/mcp_outline
+uv run poe test-unit
 
 # Run integration tests
-uv run pytest tests/ -v -m integration
+uv run poe test-integration
+
+# Run E2E tests (requires Docker)
+uv run poe test-e2e
 ```
+
+### Verifying CI on GitHub
+
+After pushing, verify all GitHub Actions checks pass. E2E tests run
+in CI and cannot be fully replicated locally without the Docker
+Compose E2E stack. Use the GitHub API to check status:
+
+```bash
+# Get status of all check runs for a commit
+curl -s "https://api.github.com/repos/Vortiago/mcp-outline/commits/<SHA>/check-runs" \
+  -H "Accept: application/vnd.github+json" \
+  | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for cr in data.get('check_runs', []):
+    print(f'{cr[\"name\"]}: {cr[\"status\"]}/{cr[\"conclusion\"]}')
+print(f'Total: {data.get(\"total_count\", 0)}')
+"
+```
+
+Replace `<SHA>` with the full or abbreviated commit hash. Expected
+checks (all must show `completed/success`):
+
+- **Unit Tests** (Python 3.10, 3.11, 3.12, 3.13)
+- **CodeQL** (actions + python analyses)
+- **E2E Tests** + E2E Test Report
+- **Build**
+
+If checks are still running (`in_progress` or `queued`),
+wait and re-run the command. E2E tests typically take 2-4 minutes.
+
+To get failure details (test annotations) for a specific check run:
+
+```bash
+# List failed test annotations for a check run
+curl -s "https://api.github.com/repos/Vortiago/mcp-outline/check-runs/<CHECK_RUN_ID>/annotations" \
+  -H "Accept: application/vnd.github+json" \
+  | python3 -c "
+import sys, json
+for a in json.load(sys.stdin):
+    print(f'{a[\"path\"]}:{a[\"start_line\"]} - {a[\"message\"]}')
+"
+```
+
+The `<CHECK_RUN_ID>` is available in the check-runs response
+(`cr["id"]`).
 
 ## Common Patterns
 
@@ -253,4 +472,35 @@ uv run pytest tests/ -v -m integration
 **Tree Formatting**: Recursive formatting with indentation for hierarchies
 
 **Document ID Resolution**: `get_document_id_from_title` for user-friendly lookups
-- When tagging version numbers look at changes since last version. Follow this rule for version number, go from left to right. First one hit is the new version number. Anye feat!: => major version, any feat: => minor version, Only fix: => patch version. Use annotated tag with a short summary of what the release contains.
+
+**Tool Annotations**: All tools should include `ToolAnnotations` with appropriate hints
+
+**Conditional Registration**: Use environment variables to control which tools are registered
+
+## Version Tagging & Release
+
+### Version Number Rules
+
+Look at changes since last version. First match wins (left to right):
+- Any `feat!:` commit → **major** version bump
+- Any `feat:` commit → **minor** version bump
+- Only `fix:` commits → **patch** version bump
+
+### Bump Script
+
+Use `uv run poe bump-version <new_version>` to update all version files:
+- `server.json` (top-level and packages version)
+- `.claude-plugin/plugin.json`
+- `.claude-plugin/marketplace.json`
+- `.mcp.json` (pinned uvx version in args)
+
+The script validates that the new version is a valid semver bump (patch, minor, or major) from the current version. It rejects invalid formats, downgrades, and arbitrary jumps.
+
+### Release Workflow
+
+1. `uv run poe bump-version <version>` — update all version files
+2. Commit and create PR with the version bump
+3. Merge the PR
+4. Tag the merged commit: `git tag -a v<version> -m "summary"`
+5. Push the tag: `git push origin v<version>`
+6. CI handles: PyPI publish, GitHub release, Docker build

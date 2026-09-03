@@ -26,7 +26,11 @@ async def test_read_only_tools_have_correct_annotations(fresh_mcp_server):
     # Define expected read-only tools
     read_only_tools = [
         "search_documents",
+        "list_recently_updated_documents",
         "read_document",
+        "get_attachment_url",
+        "fetch_attachment",
+        "list_document_attachments",
         "list_document_comments",
         "export_collection",
         "get_comment",
@@ -126,8 +130,12 @@ async def test_idempotent_tools(fresh_mcp_server):
         "delete_document",
         "archive_document",
         "search_documents",
+        "list_recently_updated_documents",
         "batch_delete_documents",
         "read_document",
+        "get_attachment_url",
+        "fetch_attachment",
+        "list_document_attachments",
         "list_collections",
         "get_collection_structure",
         "export_document",
@@ -181,3 +189,25 @@ async def test_ai_tools_have_open_world_hint(fresh_mcp_server):
         assert tool.annotations.openWorldHint is True, (
             f"Tool {tool_name} should have openWorldHint=True"
         )
+
+
+@pytest.mark.anyio
+async def test_search_documents_status_filter_schema(fresh_mcp_server):
+    """Test search_documents exposes status_filter as an enum array."""
+    register_all(fresh_mcp_server)
+    tools = await fresh_mcp_server.list_tools()
+
+    tool = next((t for t in tools if t.name == "search_documents"), None)
+    assert tool is not None
+
+    status_filter = tool.inputSchema["properties"]["status_filter"]
+    array_schema = next(
+        schema
+        for schema in status_filter["anyOf"]
+        if schema.get("type") == "array"
+    )
+    assert array_schema["items"]["enum"] == [
+        "draft",
+        "archived",
+        "published",
+    ]

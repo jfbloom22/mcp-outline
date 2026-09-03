@@ -1,21 +1,20 @@
 """
 Document content management for the MCP Outline server.
 
-This module provides MCP tools for creating and updating document content.
+This module provides MCP tools for creating and updating
+document content, and adding comments.
 """
 
-from typing import Any
+from typing import Any, Dict, Optional
 
-from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
 
 from mcp_outline.features.documents.common import (
     OutlineClientError,
-    ensure_text_is_str,
-    ensure_uuid_string,
     get_outline_client,
-    require_uuid_string,
+    get_resolved_api_key,
 )
+from mcp_outline.utils.document_cache import get_document_cache
 
 
 def register_tools(mcp) -> None:
@@ -31,15 +30,20 @@ def register_tools(mcp) -> None:
             readOnlyHint=False,
             destructiveHint=False,
             idempotentHint=False,
-        )
+        ),
+        meta={
+            "endpoint": "documents.create",
+            "min_role": "member",
+        },
     )
     async def create_document(
         title: str,
         collection_id: str,
         text: str = "",
-        parent_document_id: str | None = None,
+        parent_document_id: Optional[str] = None,
         publish: bool = True,
-        ctx: Context | None = None,
+        template: Optional[bool] = None,
+        icon: Optional[str] = None,
     ) -> str:
         """
         Creates a new document in a specified collection.
@@ -49,41 +53,47 @@ def register_tools(mcp) -> None:
         - Create documentation, guides, or notes
         - Add a child document to an existing parent
         - Start a new document thread or topic
+        - Create a reusable template document
 
-        Note: For Mermaid diagrams, use ```mermaidjs (not ```mermaid)
-        as the code fence language identifier for proper rendering.
+        Note: For Mermaid diagrams, use ```mermaidjs
+        (not ```mermaid) as the code fence language
+        identifier for proper rendering.
 
         Args:
             title: The document title
-            collection_id: The collection ID to create the document in
+            collection_id: The collection ID to create in
             text: Optional markdown content for the document
-            parent_document_id: Full UUID string (e.g.
-                580b8429-8da4-4409-a2ad-f86e194074b6) for nesting. Must be the
-                complete UUID, not a truncated value or number.
-            publish: Whether to publish the document immediately (True) or
-                save as draft (False)
+            parent_document_id: Optional parent document ID
+                for nesting
+            publish: Whether to publish immediately (True)
+                or save as draft (False)
+            template: If True, creates the document as a
+                template
+            icon: Optional emoji character to use as the
+                document icon (e.g. "📋", "🚀"). If None,
+                no icon is set.
 
         Returns:
             Result message with the new document ID
         """
         try:
-            client = await get_outline_client(ctx=ctx)
+            client = await get_outline_client()
 
             data = {
-                "title": ensure_text_is_str(title, "title"),
-                "text": ensure_text_is_str(text, "text"),
-                "collectionId": require_uuid_string(
-                    collection_id, "collection_id"
-                ),
+                "title": title,
+                "text": text,
+                "collectionId": collection_id,
                 "publish": publish,
             }
 
             if parent_document_id:
-                parsed = ensure_uuid_string(
-                    parent_document_id, "parent_document_id"
-                )
-                if parsed:
-                    data["parentDocumentId"] = parsed
+                data["parentDocumentId"] = parent_document_id
+
+            if template is not None:
+                data["template"] = template
+
+            if icon is not None:
+                data["icon"] = icon
 
             response = await client.post("documents.create", data)
             document = response.get("data", {})
@@ -95,8 +105,6 @@ def register_tools(mcp) -> None:
             doc_title = document.get("title", "Untitled")
 
             return f"Document created successfully: {doc_title} (ID: {doc_id})"
-        except (TypeError, ValueError) as e:
-            return f"Validation error: {e}"
         except OutlineClientError as e:
             return f"Error creating document: {str(e)}"
         except Exception as e:
@@ -107,57 +115,74 @@ def register_tools(mcp) -> None:
             readOnlyHint=False,
             destructiveHint=True,
             idempotentHint=False,
-        )
+        ),
+        meta={
+            "endpoint": "documents.update",
+            "min_role": "member",
+        },
     )
     async def update_document(
         document_id: str,
-        title: str | None = None,
-        text: str | None = None,
+        title: Optional[str] = None,
+        text: Optional[str] = None,
         append: bool = False,
-        ctx: Context | None = None,
+        template: Optional[bool] = None,
+        icon: Optional[str] = None,
     ) -> str:
         """
         Modifies an existing document's title or content.
 
-        By default, this tool replaces the document content rather
-        than just adding to it. If you want to replace only part
-        of a document, you should first read the document, modify
-        its content, and then send the complete text.
-
-        To safely add content to the end of a document without reading
-        it first, set 'append=True'. This preserves existing content
-        and comment anchors.
+        IMPORTANT: This tool replaces the document content
+        rather than just adding to it. For partial edits
+        (changing specific text), prefer the edit_document
+        tool instead.
 
         Use this tool when you need to:
-        - Edit or update document content (with append=False)
+        - Replace the entire document content
         - Change a document's title
-        - Append new content to an existing document (with append=True)
-        - Fix errors or add information to documents
+        - Append new content to an existing document
+        - Convert a document to or from a template
 
-        Note: For Mermaid diagrams, use ```mermaidjs (not ```mermaid)
-        as the code fence language identifier for proper rendering.
+        Note: For Mermaid diagrams, use ```mermaidjs
+        (not ```mermaid) as the code fence language
+        identifier for proper rendering.
 
         Args:
             document_id: The document ID to update
             title: New title (if None, keeps existing title)
-            text: New content (if None, keeps existing content)
-            append: If True, adds text to the end of document
-                instead of replacing. This is the reliable way
-                to perform additive updates.
+            text: New content (if None, keeps existing)
+            append: If True, adds text to end of document
+                instead of replacing
+            template: If True, converts to a template.
+                If False, converts a template back to a
+                regular document.
+            icon: Optional emoji character to use as the
+                document icon (e.g. "📋", "🚀"). If None,
+                keeps existing icon. Pass an empty string
+                to remove the icon.
 
         Returns:
             Result message confirming update
         """
         try:
-            client = await get_outline_client(ctx=ctx)
+            client = await get_outline_client()
 
-            data: dict[str, Any] = {"id": require_uuid_string(document_id, "document_id")}
+            data: Dict[str, Any] = {"id": document_id}
 
             if title is not None:
-                data["title"] = ensure_text_is_str(title, "title")
+                data["title"] = title
+
             if text is not None:
-                data["text"] = ensure_text_is_str(text, "text")
+                data["text"] = text
                 data["append"] = append
+
+            if template is not None:
+                data["template"] = template
+
+            if icon is not None:
+                # Empty string removes the icon;
+                # Outline API expects null to clear it.
+                data["icon"] = None if icon == "" else icon
 
             response = await client.post("documents.update", data)
             document = response.get("data", {})
@@ -165,11 +190,13 @@ def register_tools(mcp) -> None:
             if not document:
                 return "Failed to update document."
 
-            doc_title = document.get("title", "Untitled")
+            cache = get_document_cache()
+            await cache.invalidate_for_write(
+                get_resolved_api_key(), document_id
+            )
 
+            doc_title = document.get("title", "Untitled")
             return f"Document updated successfully: {doc_title}"
-        except (TypeError, ValueError) as e:
-            return f"Validation error: {e}"
         except OutlineClientError as e:
             return f"Error updating document: {str(e)}"
         except Exception as e:
@@ -180,16 +207,20 @@ def register_tools(mcp) -> None:
             readOnlyHint=False,
             destructiveHint=False,
             idempotentHint=False,
-        )
+        ),
+        meta={
+            "endpoint": "comments.create",
+            "min_role": "viewer",
+        },
     )
     async def add_comment(
         document_id: str,
         text: str,
-        parent_comment_id: str | None = None,
-        ctx: Context | None = None,
+        parent_comment_id: Optional[str] = None,
     ) -> str:
         """
-        Adds a comment to a document or replies to an existing comment.
+        Adds a comment to a document or replies to an
+        existing comment.
 
         Use this tool when you need to:
         - Provide feedback on document content
@@ -200,25 +231,22 @@ def register_tools(mcp) -> None:
         Args:
             document_id: The document to comment on
             text: The comment text (supports markdown)
-            parent_comment_id: Optional ID of a parent comment (for replies)
+            parent_comment_id: Optional parent comment ID
+                (for replies)
 
         Returns:
             Result message with the new comment ID
         """
         try:
-            client = await get_outline_client(ctx=ctx)
+            client = await get_outline_client()
 
             data = {
-                "documentId": require_uuid_string(document_id, "document_id"),
-                "text": ensure_text_is_str(text, "text"),
+                "documentId": document_id,
+                "text": text,
             }
 
             if parent_comment_id:
-                parsed = ensure_uuid_string(
-                    parent_comment_id, "parent_comment_id"
-                )
-                if parsed:
-                    data["parentCommentId"] = parsed
+                data["parentCommentId"] = parent_comment_id
 
             response = await client.post("comments.create", data)
             comment = response.get("data", {})
@@ -232,8 +260,6 @@ def register_tools(mcp) -> None:
                 return f"Reply added successfully (ID: {comment_id})"
             else:
                 return f"Comment added successfully (ID: {comment_id})"
-        except (TypeError, ValueError) as e:
-            return f"Validation error: {e}"
         except OutlineClientError as e:
             return f"Error adding comment: {str(e)}"
         except Exception as e:

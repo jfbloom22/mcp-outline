@@ -2,7 +2,6 @@
 Tests for the Outline API client.
 """
 
-import asyncio
 import os
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -25,6 +24,8 @@ class TestOutlineClient:
         # Save original environment variables
         self.original_api_key = os.environ.get("OUTLINE_API_KEY")
         self.original_api_url = os.environ.get("OUTLINE_API_URL")
+        self.original_write_timeout = os.environ.get("OUTLINE_WRITE_TIMEOUT")
+        self.original_verify_ssl = os.environ.get("OUTLINE_VERIFY_SSL")
 
         # Set test environment variables
         os.environ["OUTLINE_API_KEY"] = MOCK_API_KEY
@@ -43,37 +44,29 @@ class TestOutlineClient:
         else:
             os.environ.pop("OUTLINE_API_URL", None)
 
+        if self.original_write_timeout is not None:
+            os.environ["OUTLINE_WRITE_TIMEOUT"] = self.original_write_timeout
+        else:
+            os.environ.pop("OUTLINE_WRITE_TIMEOUT", None)
+
+        if self.original_verify_ssl is not None:
+            os.environ["OUTLINE_VERIFY_SSL"] = self.original_verify_ssl
+        else:
+            os.environ.pop("OUTLINE_VERIFY_SSL", None)
+
     @pytest.fixture(autouse=True)
     def _cleanup_client_pool(self):
-        """Ensure the shared httpx client pool is closed after each test.
+        """Ensure no real httpx.AsyncClient is created by default.
 
-        Uses a defensive approach: tries to run close_pool() on the current
-        event loop if possible; otherwise creates a temporary loop. This
-        avoids creating a new loop unconditionally and prevents "event loop
-        already running" errors in pytest-asyncio/anyio environments.
+        Sets a MagicMock before and after each test. Avoids the ~0.8s
+        SSL context load that httpx.AsyncClient.__init__ triggers.
+        Tests that patch httpx.AsyncClient directly manage the pool
+        themselves.
         """
+        if OutlineClient._client_pool is None:
+            OutlineClient._client_pool = MagicMock()
         yield
-        coro = OutlineClient.close_pool()
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            # No running loop in this thread; create a temporary one
-            loop = asyncio.new_event_loop()
-            try:
-                loop.run_until_complete(coro)
-            finally:
-                loop.close()
-        else:
-            # We have an event loop object
-            if loop.is_running():
-                # Can't run in the running loop; use a temporary loop
-                new_loop = asyncio.new_event_loop()
-                try:
-                    new_loop.run_until_complete(coro)
-                finally:
-                    new_loop.close()
-            else:
-                loop.run_until_complete(coro)
+        OutlineClient._client_pool = MagicMock()
 
     @pytest.mark.asyncio
     async def test_init_from_env_variables(self):
@@ -140,6 +133,7 @@ class TestOutlineClient:
                     "Accept": "application/json",
                 },
                 json=data,
+                follow_redirects=True,
             )
 
             assert result == {"data": {"test": "value"}}
@@ -343,15 +337,97 @@ class TestOutlineClient:
 
     @pytest.mark.asyncio
     async def test_session_configured_with_retry(self):
-        """Test that client pool is configured with httpx AsyncClient."""
-        client = OutlineClient()
+        """Test that client pool is created as httpx.AsyncClient."""
+        OutlineClient._client_pool = None
+        with patch(
+            "mcp_outline.utils.outline_client.httpx.AsyncClient"
+        ) as mock_client_cls:
+            OutlineClient()
+            mock_client_cls.assert_called_once()
+            kwargs = mock_client_cls.call_args.kwargs
+            assert "limits" in kwargs
+            assert "timeout" in kwargs
+            assert "follow_redirects" in kwargs
 
-        # Verify client pool is an httpx.AsyncClient
-        assert isinstance(client._client_pool, httpx.AsyncClient)
+    @pytest.mark.asyncio
+    async def test_write_timeout_configurable(self):
+        """Test write timeout is configurable via env var."""
+        os.environ["OUTLINE_WRITE_TIMEOUT"] = "60.0"
 
-        # Verify transport exists
-        transport = client._client_pool._transport
-        assert transport is not None
+        OutlineClient._client_pool = None
+        with patch(
+            "mcp_outline.utils.outline_client.httpx.AsyncClient"
+        ) as mock_client_cls:
+            OutlineClient()
+            kwargs = mock_client_cls.call_args.kwargs
+            assert kwargs["timeout"].write == 60.0
+
+    @pytest.mark.asyncio
+    async def test_write_timeout_default(self):
+        """Test write timeout defaults to 30.0 seconds."""
+        os.environ.pop("OUTLINE_WRITE_TIMEOUT", None)
+
+        OutlineClient._client_pool = None
+        with patch(
+            "mcp_outline.utils.outline_client.httpx.AsyncClient"
+        ) as mock_client_cls:
+            OutlineClient()
+            kwargs = mock_client_cls.call_args.kwargs
+            assert kwargs["timeout"].write == 30.0
+
+    @pytest.mark.asyncio
+    async def test_verify_ssl_enabled_by_default(self):
+        """SSL verification is enabled when OUTLINE_VERIFY_SSL is not set."""
+        os.environ.pop("OUTLINE_VERIFY_SSL", None)
+
+        OutlineClient._client_pool = None
+        with patch(
+            "mcp_outline.utils.outline_client.httpx.AsyncClient"
+        ) as mock_client_cls:
+            OutlineClient()
+            kwargs = mock_client_cls.call_args.kwargs
+            assert kwargs["verify"] is True
+
+    @pytest.mark.asyncio
+    async def test_verify_ssl_disabled_when_false(self):
+        """SSL verification is disabled when OUTLINE_VERIFY_SSL=false."""
+        os.environ["OUTLINE_VERIFY_SSL"] = "false"
+
+        OutlineClient._client_pool = None
+        with patch(
+            "mcp_outline.utils.outline_client.httpx.AsyncClient"
+        ) as mock_client_cls:
+            OutlineClient()
+            kwargs = mock_client_cls.call_args.kwargs
+            assert kwargs["verify"] is False
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "value,expected",
+        [
+            ("false", False),
+            ("False", False),
+            ("FALSE", False),
+            ("0", False),
+            ("no", False),
+            ("No", False),
+            ("true", True),
+            ("1", True),
+            ("yes", True),
+            ("anything_else", True),
+        ],
+    )
+    async def test_verify_ssl_env_var_variants(self, value, expected):
+        """OUTLINE_VERIFY_SSL parsing: case-insensitive, safe defaults."""
+        os.environ["OUTLINE_VERIFY_SSL"] = value
+
+        OutlineClient._client_pool = None
+        with patch(
+            "mcp_outline.utils.outline_client.httpx.AsyncClient"
+        ) as mock_client_cls:
+            OutlineClient()
+            kwargs = mock_client_cls.call_args.kwargs
+            assert kwargs["verify"] is expected
 
     @pytest.mark.asyncio
     async def test_api_url_normalization(self):
@@ -379,6 +455,293 @@ class TestOutlineClient:
 
         client = OutlineClient()
         assert client.api_key == "quoted_key"
+
+    @pytest.mark.asyncio
+    async def test_search_documents_defaults_to_published_status(self):
+        """documents.search defaults to published documents only."""
+        client = OutlineClient()
+
+        with patch.object(
+            client,
+            "post",
+            new=AsyncMock(return_value={"data": []}),
+        ) as mock_post:
+            await client.search_documents("policy")
+
+        mock_post.assert_called_once_with(
+            "documents.search",
+            {
+                "query": "policy",
+                "limit": 25,
+                "offset": 0,
+                "statusFilter": ["published"],
+            },
+        )
+
+    @pytest.mark.asyncio
+    async def test_search_documents_forwards_status_filter(self):
+        """documents.search forwards an explicit statusFilter."""
+        client = OutlineClient()
+
+        with patch.object(
+            client,
+            "post",
+            new=AsyncMock(return_value={"data": []}),
+        ) as mock_post:
+            await client.search_documents(
+                "policy", status_filter=["draft", "archived"]
+            )
+
+        mock_post.assert_called_once_with(
+            "documents.search",
+            {
+                "query": "policy",
+                "limit": 25,
+                "offset": 0,
+                "statusFilter": ["draft", "archived"],
+            },
+        )
+
+    @pytest.mark.asyncio
+    async def test_search_documents_forwards_empty_status_filter(self):
+        """documents.search only defaults when statusFilter is None."""
+        client = OutlineClient()
+
+        with patch.object(
+            client,
+            "post",
+            new=AsyncMock(return_value={"data": []}),
+        ) as mock_post:
+            await client.search_documents("policy", status_filter=[])
+
+        mock_post.assert_called_once_with(
+            "documents.search",
+            {
+                "query": "policy",
+                "limit": 25,
+                "offset": 0,
+                "statusFilter": [],
+            },
+        )
+
+    @pytest.mark.asyncio
+    async def test_search_documents_forwards_recency_params(self):
+        """documents.search forwards sort/direction/dateFilter and allows an
+        empty query so it can act as a recency listing."""
+        client = OutlineClient()
+
+        with patch.object(
+            client,
+            "post",
+            new=AsyncMock(return_value={"data": [], "pagination": {}}),
+        ) as mock_post:
+            result = await client.search_documents(
+                query="",
+                sort="updatedAt",
+                direction="DESC",
+                date_filter="week",
+            )
+
+        mock_post.assert_called_once_with(
+            "documents.search",
+            {
+                "query": "",
+                "limit": 25,
+                "offset": 0,
+                "statusFilter": ["published"],
+                "sort": "updatedAt",
+                "direction": "DESC",
+                "dateFilter": "week",
+            },
+        )
+        assert result == {"data": [], "pagination": {}}
+
+    @pytest.mark.asyncio
+    async def test_search_documents_omits_recency_params_by_default(self):
+        """sort/direction/dateFilter keys are absent when not provided."""
+        client = OutlineClient()
+
+        with patch.object(
+            client,
+            "post",
+            new=AsyncMock(return_value={"data": []}),
+        ) as mock_post:
+            await client.search_documents("policy")
+
+        sent = mock_post.call_args.args[1]
+        assert "sort" not in sent
+        assert "direction" not in sent
+        assert "dateFilter" not in sent
+
+    @pytest.mark.asyncio
+    async def test_get_attachment_redirect_url_success(self):
+        """Test get_attachment_redirect_url returns Location header."""
+        client = OutlineClient()
+
+        mock_response = MagicMock()
+        mock_response.status_code = 302
+        mock_response.headers = {
+            "Location": "https://storage.example.com/signed/file.pdf",
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        with patch.object(
+            client._client_pool,
+            "post",
+            new=AsyncMock(return_value=mock_response),
+        ) as mock_post:
+            result = await client.get_attachment_redirect_url(
+                "6fe06f93-e331-408d-b954-6bb4ed50e67d"
+            )
+
+            mock_post.assert_called_once()
+            call_kwargs = mock_post.call_args[1]
+            assert call_kwargs["json"] == {
+                "id": "6fe06f93-e331-408d-b954-6bb4ed50e67d"
+            }
+            assert call_kwargs["follow_redirects"] is False
+
+            assert result == "https://storage.example.com/signed/file.pdf"
+
+    @pytest.mark.asyncio
+    async def test_get_attachment_redirect_url_404_raises(self):
+        """Test get_attachment_redirect_url raises for 4xx errors."""
+        client = OutlineClient()
+
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        mock_response.text = "Not found"
+        mock_response.headers = {}
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "Not found",
+            request=MagicMock(),
+            response=mock_response,
+        )
+
+        with patch.object(
+            client._client_pool,
+            "post",
+            new=AsyncMock(return_value=mock_response),
+        ):
+            with pytest.raises(OutlineError) as exc_info:
+                await client.get_attachment_redirect_url(
+                    "6fe06f93-e331-408d-b954-6bb4ed50e67d"
+                )
+
+            assert "404" in str(exc_info.value)
+            assert "Not found" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_get_attachment_redirect_url_no_location(self):
+        """Test get_attachment_redirect_url raises when no Location header."""
+        client = OutlineClient()
+
+        mock_response = MagicMock()
+        mock_response.status_code = 302
+        mock_response.headers = {}
+        mock_response.raise_for_status = MagicMock()
+
+        with patch.object(
+            client._client_pool,
+            "post",
+            new=AsyncMock(return_value=mock_response),
+        ):
+            with pytest.raises(OutlineError) as exc_info:
+                await client.get_attachment_redirect_url(
+                    "6fe06f93-e331-408d-b954-6bb4ed50e67d"
+                )
+
+            assert "No Location header" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_fetch_attachment_content_success(self):
+        """Test fetch_attachment_content returns content and content-type."""
+        client = OutlineClient()
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "application/pdf"}
+        mock_response.content = b"%PDF-1.4 binary content"
+        mock_response.raise_for_status = MagicMock()
+
+        with patch.object(
+            client._client_pool,
+            "post",
+            new=AsyncMock(return_value=mock_response),
+        ) as mock_post:
+            content, content_type = await client.fetch_attachment_content(
+                "6fe06f93-e331-408d-b954-6bb4ed50e67d"
+            )
+
+            mock_post.assert_called_once()
+            call_kwargs = mock_post.call_args[1]
+            assert call_kwargs["json"] == {
+                "id": "6fe06f93-e331-408d-b954-6bb4ed50e67d"
+            }
+            assert call_kwargs["follow_redirects"] is True
+
+            assert content == b"%PDF-1.4 binary content"
+            assert content_type == "application/pdf"
+
+    @pytest.mark.asyncio
+    async def test_fetch_attachment_content_default_content_type(self):
+        """Test fetch_attachment_content uses default when no content-type."""
+        client = OutlineClient()
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {}
+        mock_response.content = b"binary"
+        mock_response.raise_for_status = MagicMock()
+
+        with patch.object(
+            client._client_pool,
+            "post",
+            new=AsyncMock(return_value=mock_response),
+        ):
+            _, content_type = await client.fetch_attachment_content(
+                "6fe06f93-e331-408d-b954-6bb4ed50e67d"
+            )
+
+            assert content_type == "application/octet-stream"
+
+    @pytest.mark.asyncio
+    async def test_fetch_attachment_content_retries_on_429(self):
+        """Attachment fetch shares the request core's retry: 429 then 200.
+
+        Guards the consolidation onto ``_request`` — the attachment
+        adapters now inherit retry-on-429 from the shared core rather
+        than carrying their own copy.
+        """
+        client = OutlineClient()
+
+        mock_429 = MagicMock()
+        mock_429.status_code = 429
+        mock_429.headers = {"Retry-After": "0.01"}
+        mock_429.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "Too Many Requests",
+            request=MagicMock(),
+            response=mock_429,
+        )
+
+        mock_success = MagicMock()
+        mock_success.status_code = 200
+        mock_success.headers = {"content-type": "application/pdf"}
+        mock_success.content = b"%PDF-1.4 binary content"
+        mock_success.raise_for_status = MagicMock()
+
+        with patch.object(
+            client._client_pool,
+            "post",
+            new=AsyncMock(side_effect=[mock_429, mock_success]),
+        ) as mock_post:
+            content, content_type = await client.fetch_attachment_content(
+                "6fe06f93-e331-408d-b954-6bb4ed50e67d"
+            )
+
+            assert mock_post.call_count == 2
+            assert content == b"%PDF-1.4 binary content"
+            assert content_type == "application/pdf"
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -422,3 +785,196 @@ class TestOutlineClient:
 
         client = OutlineClient()
         assert client.api_url == expected
+
+    # -- list_api_keys tests ----------------------------------
+
+    @pytest.mark.asyncio
+    async def test_list_api_keys_success(self):
+        """list_api_keys returns data from response."""
+        client = OutlineClient()
+        mock_data = [
+            {"last4": "abcd", "scope": None, "name": "k1"},
+        ]
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {}
+        mock_response.json.return_value = {"data": mock_data}
+        mock_response.raise_for_status = MagicMock()
+
+        with patch.object(
+            client._client_pool,
+            "post",
+            new=AsyncMock(return_value=mock_response),
+        ):
+            result = await client.list_api_keys()
+            assert result == mock_data
+
+    @pytest.mark.asyncio
+    async def test_list_api_keys_pagination_params(self):
+        """list_api_keys passes limit and offset."""
+        client = OutlineClient()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {}
+        mock_response.json.return_value = {"data": []}
+        mock_response.raise_for_status = MagicMock()
+
+        with patch.object(
+            client._client_pool,
+            "post",
+            new=AsyncMock(return_value=mock_response),
+        ) as mock_post:
+            await client.list_api_keys(limit=50, offset=10)
+            _, kwargs = mock_post.call_args
+            assert kwargs["json"]["limit"] == 50
+            assert kwargs["json"]["offset"] == 10
+
+    @pytest.mark.asyncio
+    async def test_list_api_keys_error_propagation(self):
+        """list_api_keys propagates OutlineError."""
+        client = OutlineClient()
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+        mock_response.headers = {}
+        mock_response.text = "authentication_required"
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "401",
+            request=MagicMock(),
+            response=mock_response,
+        )
+
+        with patch.object(
+            client._client_pool,
+            "post",
+            new=AsyncMock(return_value=mock_response),
+        ):
+            with pytest.raises(OutlineError) as exc_info:
+                await client.list_api_keys()
+            assert exc_info.value.status_code == 401
+
+    # -- get_auth_info tests ----------------------------------
+
+    @pytest.mark.asyncio
+    async def test_get_auth_info_success(self):
+        """get_auth_info returns data dict from auth.info."""
+        client = OutlineClient()
+        mock_data = {
+            "user": {"role": "viewer", "name": "Test"},
+            "team": {"name": "TestTeam"},
+        }
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {}
+        mock_response.json.return_value = {"data": mock_data}
+        mock_response.raise_for_status = MagicMock()
+
+        with patch.object(
+            client._client_pool,
+            "post",
+            new=AsyncMock(return_value=mock_response),
+        ):
+            result = await client.get_auth_info()
+            assert result == mock_data
+            assert result["user"]["role"] == "viewer"
+
+    @pytest.mark.asyncio
+    async def test_get_auth_info_error_propagation(self):
+        """get_auth_info propagates OutlineError."""
+        client = OutlineClient()
+        mock_response = MagicMock()
+        mock_response.status_code = 401
+        mock_response.headers = {}
+        mock_response.text = "authentication_required"
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "401",
+            request=MagicMock(),
+            response=mock_response,
+        )
+
+        with patch.object(
+            client._client_pool,
+            "post",
+            new=AsyncMock(return_value=mock_response),
+        ):
+            with pytest.raises(OutlineError) as exc_info:
+                await client.get_auth_info()
+            assert exc_info.value.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_get_auth_info_403_forbidden(self):
+        """get_auth_info raises OutlineError on 403 (missing scope)."""
+        client = OutlineClient()
+        mock_response = MagicMock()
+        mock_response.status_code = 403
+        mock_response.headers = {}
+        mock_response.text = "forbidden"
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "403",
+            request=MagicMock(),
+            response=mock_response,
+        )
+
+        with patch.object(
+            client._client_pool,
+            "post",
+            new=AsyncMock(return_value=mock_response),
+        ):
+            with pytest.raises(OutlineError) as exc_info:
+                await client.get_auth_info()
+            assert exc_info.value.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_get_auth_info_timeout(self):
+        """get_auth_info raises OutlineError on timeout."""
+        client = OutlineClient()
+
+        with patch.object(
+            client._client_pool,
+            "post",
+            new=AsyncMock(side_effect=httpx.TimeoutException("timed out")),
+        ):
+            with pytest.raises(OutlineError) as exc_info:
+                await client.get_auth_info()
+            assert "timeout" in str(exc_info.value).lower()
+
+    @pytest.mark.asyncio
+    async def test_get_auth_info_missing_data_field(self):
+        """get_auth_info returns empty dict when response has no data."""
+        client = OutlineClient()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {}
+        mock_response.json.return_value = {"ok": True}
+        mock_response.raise_for_status = MagicMock()
+
+        with patch.object(
+            client._client_pool,
+            "post",
+            new=AsyncMock(return_value=mock_response),
+        ):
+            result = await client.get_auth_info()
+            assert result == {}
+
+    # -- post() edge-case tests --------------------------------
+
+    @pytest.mark.asyncio
+    async def test_post_without_data_omits_body(self):
+        """post() passes json=None to httpx when data is not provided."""
+        client = OutlineClient()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {}
+        mock_response.json.return_value = {"data": {}}
+
+        with patch.object(
+            client._client_pool,
+            "post",
+            new=AsyncMock(return_value=mock_response),
+        ) as mock_post:
+            await client.post("auth.info")
+
+            call_kwargs = mock_post.call_args
+            assert call_kwargs.kwargs["json"] is None, (
+                "post() should pass json=None when data is not "
+                "provided, so httpx omits the request body"
+            )

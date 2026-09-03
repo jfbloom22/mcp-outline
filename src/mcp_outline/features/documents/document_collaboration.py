@@ -74,7 +74,11 @@ def register_tools(mcp) -> None:
     """
 
     @mcp.tool(
-        annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True)
+        annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True),
+        meta={
+            "endpoint": "comments.list",
+            "min_role": "viewer",
+        },
     )
     async def list_document_comments(
         document_id: str,
@@ -130,7 +134,11 @@ def register_tools(mcp) -> None:
             return f"Unexpected error: {str(e)}"
 
     @mcp.tool(
-        annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True)
+        annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True),
+        meta={
+            "endpoint": "comments.info",
+            "min_role": "viewer",
+        },
     )
     async def get_comment(
         comment_id: str,
@@ -190,7 +198,11 @@ def register_tools(mcp) -> None:
             return f"Unexpected error: {str(e)}"
 
     @mcp.tool(
-        annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True)
+        annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True),
+        meta={
+            "endpoint": "documents.list",
+            "min_role": "viewer",
+        },
     )
     async def get_document_backlinks(
         document_id: str, ctx: Context | None = None
