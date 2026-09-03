@@ -4,21 +4,20 @@ Document search tools for the MCP Outline server.
 This module provides MCP tools for searching and listing documents.
 """
 
-from typing import Any
+import os
+from typing import Any, Dict, List, Literal, Optional
 
-from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
 
 from mcp_outline.features.documents.common import (
     OutlineClientError,
-    format_documents_list as _format_documents_list,
     get_outline_client,
 )
 
 
 def _format_search_results(
-    results: list[dict[str, Any]],
-    pagination: dict[str, Any] | None = None,
+    results: List[Dict[str, Any]],
+    pagination: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Format search results into readable text with pagination info."""
     if not results:
@@ -66,8 +65,28 @@ def _format_search_results(
     return output
 
 
+def _format_documents_list(documents: List[Dict[str, Any]], title: str) -> str:
+    """Format a list of documents into readable text."""
+    if not documents:
+        return f"No {title.lower()} found."
 
-def _format_collections(collections: list[dict[str, Any]]) -> str:
+    output = f"# {title}\n\n"
+
+    for i, document in enumerate(documents, 1):
+        doc_title = document.get("title", "Untitled")
+        doc_id = document.get("id", "")
+        updated_at = document.get("updatedAt", "")
+
+        output += f"## {i}. {doc_title}\n"
+        output += f"ID: {doc_id}\n"
+        if updated_at:
+            output += f"Last Updated: {updated_at}\n"
+        output += "\n"
+
+    return output
+
+
+def _format_collections(collections: List[Dict[str, Any]]) -> str:
     """Format collections into readable text."""
     if not collections:
         return "No collections found."
@@ -91,7 +110,7 @@ def _format_collections(collections: list[dict[str, Any]]) -> str:
     return output
 
 
-def _format_collection_documents(doc_nodes: list[dict[str, Any]]) -> str:
+def _format_collection_documents(doc_nodes: List[Dict[str, Any]]) -> str:
     """Format collection document structure into readable text."""
     if not doc_nodes:
         return "No documents found in this collection."
@@ -105,10 +124,7 @@ def _format_collection_documents(doc_nodes: list[dict[str, Any]]) -> str:
 
         # Format this node
         indent = "  " * depth
-        text = f"{indent}- {title} (ID: {node_id}"
-        if node_url_id:
-            text += f", Short ID: {node_url_id}"
-        text += ")\n"
+        text = f"{indent}- {title} (ID: {node_id})\n"
 
         # Recursively format children
         for child in children:
@@ -130,16 +146,25 @@ def register_tools(mcp) -> None:
     Args:
         mcp: The FastMCP server instance
     """
+    disable_recent = os.getenv(
+        "OUTLINE_DISABLE_RECENT_DOCUMENTS", ""
+    ).lower() in ("true", "1", "yes")
 
     @mcp.tool(
-        annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True)
+        annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True),
+        meta={
+            "endpoint": "documents.search",
+            "min_role": "viewer",
+        },
     )
     async def search_documents(
         query: str,
-        collection_id: str | None = None,
+        collection_id: Optional[str] = None,
         limit: int = 25,
         offset: int = 0,
-        ctx: Context | None = None,
+        status_filter: Optional[
+            List[Literal["draft", "archived", "published"]]
+        ] = None,
     ) -> str:
         """
         Searches for documents using keywords or phrases across your knowledge
@@ -159,6 +184,10 @@ def register_tools(mcp) -> None:
         For example, use offset=25 to get results 26-50, offset=50 for
         51-75, etc.
 
+        STATUS FILTER: By default, searches published documents only. Pass
+        status_filter to include other document states. Allowed values are
+        "draft", "archived", and "published".
+
         Use this tool when you need to:
         - Find documents containing specific terms or topics
         - Locate information across multiple documents
@@ -171,15 +200,22 @@ def register_tools(mcp) -> None:
             collection_id: Optional collection to limit the search to
             limit: Maximum results to return (default: 25, max: 100)
             offset: Number of results to skip for pagination (default: 0)
+            status_filter: Optional list of statuses to search. Allowed values
+                are "draft", "archived", and "published". Defaults to
+                ["published"] when omitted.
 
         Returns:
             Formatted string containing search results with document titles,
             contexts, and pagination information
         """
         try:
-            client = await get_outline_client(ctx=ctx)
+            client = await get_outline_client()
             response = await client.search_documents(
-                query, collection_id, limit, offset
+                query,
+                collection_id,
+                limit,
+                offset,
+                status_filter=status_filter,
             )
 
             # Extract results and pagination metadata
@@ -193,9 +229,13 @@ def register_tools(mcp) -> None:
             return f"Unexpected error during search: {str(e)}"
 
     @mcp.tool(
-        annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True)
+        annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True),
+        meta={
+            "endpoint": "collections.list",
+            "min_role": "viewer",
+        },
     )
-    async def list_collections(ctx: Context | None = None) -> str:
+    async def list_collections(limit: int = 100, offset: int = 0) -> str:
         """
         Retrieves and displays all available collections in the workspace.
 
@@ -205,12 +245,22 @@ def register_tools(mcp) -> None:
         - Explore the organization of the knowledge base
         - Find a specific collection by name
 
+        Args:
+            limit: Maximum number of results to return
+            offset: Number of results to skip (pagination)
+
         Returns:
             Formatted string containing collection names, IDs, and descriptions
+
+        If the response contains as many collections as the
+        limit, execute the tool again with an increased offset
+        to check for more results.
         """
         try:
-            client = await get_outline_client(ctx=ctx)
-            collections = await client.list_collections()
+            client = await get_outline_client()
+            collections = await client.list_collections(
+                limit=limit, offset=offset
+            )
             return _format_collections(collections)
         except OutlineClientError as e:
             return f"Error listing collections: {str(e)}"
@@ -218,11 +268,13 @@ def register_tools(mcp) -> None:
             return f"Unexpected error listing collections: {str(e)}"
 
     @mcp.tool(
-        annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True)
+        annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True),
+        meta={
+            "endpoint": "collections.documents",
+            "min_role": "viewer",
+        },
     )
-    async def get_collection_structure(
-        collection_id: str, ctx: Context | None = None
-    ) -> str:
+    async def get_collection_structure(collection_id: str) -> str:
         """
         Retrieves the hierarchical document structure of a collection.
 
@@ -239,7 +291,7 @@ def register_tools(mcp) -> None:
             Formatted string showing the hierarchical structure of documents
         """
         try:
-            client = await get_outline_client(ctx=ctx)
+            client = await get_outline_client()
             docs = await client.get_collection_documents(collection_id)
             return _format_collection_documents(docs)
         except OutlineClientError as e:
@@ -248,12 +300,14 @@ def register_tools(mcp) -> None:
             return f"Unexpected error: {str(e)}"
 
     @mcp.tool(
-        annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True)
+        annotations=ToolAnnotations(readOnlyHint=True, idempotentHint=True),
+        meta={
+            "endpoint": "documents.search",
+            "min_role": "viewer",
+        },
     )
     async def get_document_id_from_title(
-        query: str,
-        collection_id: str | None = None,
-        ctx: Context | None = None,
+        query: str, collection_id: Optional[str] = None
     ) -> str:
         """
         Locates a document ID by searching for its title.
@@ -279,7 +333,7 @@ def register_tools(mcp) -> None:
             Document ID if found, or best match information
         """
         try:
-            client = await get_outline_client(ctx=ctx)
+            client = await get_outline_client()
             response = await client.search_documents(query, collection_id)
 
             # Extract results from response
@@ -313,3 +367,86 @@ def register_tools(mcp) -> None:
             return f"Error searching for document: {str(e)}"
         except Exception as e:
             return f"Unexpected error: {str(e)}"
+
+    if not disable_recent:
+
+        @mcp.tool(
+            annotations=ToolAnnotations(
+                readOnlyHint=True, idempotentHint=True
+            ),
+            meta={
+                "endpoint": "documents.search",
+                "min_role": "viewer",
+            },
+        )
+        async def list_recently_updated_documents(
+            date_filter: Optional[
+                Literal["day", "week", "month", "year"]
+            ] = "week",
+            collection_id: Optional[str] = None,
+            status_filter: Optional[
+                List[Literal["draft", "archived", "published"]]
+            ] = None,
+            limit: int = 25,
+            offset: int = 0,
+        ) -> str:
+            """
+            Lists documents ordered by most recent change (newest first).
+
+            Answers questions like "what changed this week" without needing
+            search keywords. Backed by Outline's search endpoint with an empty
+            query, sorted by last-modified time.
+
+            IMPORTANT: date_filter is a coarse server-side window on each
+            document's last-modified time. It accepts only "day", "week",
+            "month", or "year" (no arbitrary timestamps) and defaults to
+            "week". Results are ordered newest-changed first.
+
+            STATUS FILTER: By default this lists published documents only.
+            Pass status_filter to include other states. Allowed values are
+            "draft", "archived", and "published". Drafts only ever include
+            those you are allowed to see.
+
+            PAGINATION: Returns up to limit documents (default 25). Use offset
+            to page through older changes.
+
+            Use this tool when you need to:
+            - Answer "what documents changed recently / this week"
+            - Review recent activity, optionally within one collection
+            - Catch up on edits since you last looked
+
+            Args:
+                date_filter: Time window on last-modified time. One of "day",
+                    "week", "month", "year". Defaults to "week".
+                collection_id: Optional collection to limit results to
+                status_filter: Optional list of statuses to include. Allowed
+                    values are "draft", "archived", and "published". Defaults
+                    to published only.
+                limit: Maximum number of documents to return (default: 25)
+                offset: Number of documents to skip for pagination (default: 0)
+
+            Returns:
+                Formatted string listing documents with their IDs and
+                last-updated timestamps, newest first
+            """
+            try:
+                client = await get_outline_client()
+                response = await client.search_documents(
+                    query="",
+                    collection_id=collection_id,
+                    limit=limit,
+                    offset=offset,
+                    status_filter=status_filter,
+                    sort="updatedAt",
+                    direction="DESC",
+                    date_filter=date_filter,
+                )
+                results = response.get("data", [])
+                documents = [result.get("document", {}) for result in results]
+                return _format_documents_list(
+                    documents, "Recently Updated Documents"
+                )
+            except OutlineClientError as e:
+                return f"Error listing recently updated documents: {str(e)}"
+            except Exception as e:
+                return f"Unexpected error: {str(e)}"

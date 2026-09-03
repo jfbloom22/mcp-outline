@@ -151,6 +151,35 @@ def _get_request_from_request_ctx() -> Request | None:
     return None
 
 
+
+
+
+def _get_header_api_key() -> str | None:
+    """Compatibility helper for dynamic tool filtering."""
+    request = _get_request_from_request_ctx()
+    if request is None:
+        return None
+    from mcp_outline.utils.outline_client import _sanitize_value
+
+    return _sanitize_value(request.headers.get("x-outline-api-key"))
+
+def get_resolved_api_key() -> str:
+    """Return API key for the current request (header or env)."""
+    request = _get_request_from_request_ctx()
+    if request is not None:
+        try:
+            auth_ctx = build_request_auth(request, AuthConfig.from_env())
+            if auth_ctx is not None:
+                return auth_ctx.api_key
+        except RequestAuthError:
+            pass
+        from mcp_outline.utils.outline_client import _sanitize_value
+
+        header_key = _sanitize_value(request.headers.get("x-outline-api-key"))
+        if header_key:
+            return header_key
+    return os.getenv("OUTLINE_API_KEY", "")
+
 async def get_outline_client(
     ctx: Context | None = None, request: Request | None = None
 ) -> OutlineClient:
